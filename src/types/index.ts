@@ -51,7 +51,7 @@ export interface Pipeline {
   approvalTime?: string;
   approvalNote?: string;
   lastRejectNote?: string;
-  approvalHistory: ApprovalHistoryItem[];
+  approvalHistory?: ApprovalHistoryItem[];
   sectionIds: string[];
   voltage?: string;
   pressure?: string;
@@ -90,7 +90,8 @@ export interface AlarmProcessRecord {
   handler: string;
   handleTime: string;
   handleNote: string;
-  handleResult: 'processing' | 'resolved' | 'transferred';
+  handleResult: 'processing' | 'resolved' | 'transferred' | 'escalate' | 'assign';
+  assignees?: string[];
 }
 
 export interface AlarmRecord {
@@ -104,6 +105,10 @@ export interface AlarmRecord {
   handler?: string;
   resolvedTime?: string;
   processRecords?: AlarmProcessRecord[];
+  isEmergency?: boolean;
+  emergencyTime?: string;
+  assignees?: string[];
+  sectionId?: string;
 }
 
 export interface TenantUnit {
@@ -205,6 +210,7 @@ export interface RectificationItem {
   abnormalDescription: string;
   checkpointName: string;
   checkpointCode: string;
+  sectionId?: string;
   location: string;
   reporter: string;
   reportTime: string;

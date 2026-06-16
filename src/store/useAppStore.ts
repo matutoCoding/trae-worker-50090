@@ -69,6 +69,8 @@ interface AppState {
     handler?: string
   ) => void;
   processAlarm: (alarmId: string, data: AlarmProcessData) => void;
+  escalateAlarm: (alarmId: string, operator: string, note?: string) => void;
+  assignAlarmPersonnel: (alarmId: string, operator: string, assignees: string[], note?: string) => void;
 
   addPipeline: (data: PipelineFormData) => void;
   deletePipeline: (id: string) => void;
@@ -143,22 +145,26 @@ const initialRectifications: RectificationItem[] = initialInspections
   .flatMap((r) =>
     (r.abnormalities || [])
       .filter((a) => a.status !== 'resolved')
-      .map((a) => ({
-        id: generateId(),
-        inspectionId: r.id,
-        inspectionName: r.taskName,
-        abnormalId: a.id,
-        abnormalDescription: a.description,
-        checkpointName: a.checkpointName,
-        checkpointCode: a.checkpointCode,
-        location: a.location,
-        reporter: a.reporter,
-        reportTime: a.reportTime,
-        status: a.status as RectificationItem['status'],
-        timeline: [
-          createTimelineItem('report', a.reporter, a.description),
-        ],
-      }))
+      .map((a) => {
+        const cp = checkPoints.find(c => c.id === a.checkpointId);
+        return {
+          id: generateId(),
+          inspectionId: r.id,
+          inspectionName: r.taskName,
+          abnormalId: a.id,
+          abnormalDescription: a.description,
+          checkpointName: a.checkpointName,
+          checkpointCode: a.checkpointCode,
+          sectionId: cp?.sectionId || r.sectionIds[0],
+          location: a.location,
+          reporter: a.reporter,
+          reportTime: a.reportTime,
+          status: a.status as RectificationItem['status'],
+          timeline: [
+            createTimelineItem('report', a.reporter, a.description),
+          ],
+        };
+      })
   );
 
 const enhancedPipelines: Pipeline[] = initialPipelines.map((p) => ({
@@ -260,6 +266,57 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }),
 
+  escalateAlarm: (alarmId, operator, note) =>
+    set((state) => {
+      const processRecord: AlarmProcessRecord = {
+        id: generateId(),
+        alarmId,
+        handler: operator,
+        handleTime: formatDateTime(),
+        handleNote: note || '升级为应急事件',
+        handleResult: 'escalate',
+      };
+      return {
+        alarms: state.alarms.map((a) =>
+          a.id === alarmId
+            ? {
+                ...a,
+                isEmergency: true,
+                emergencyTime: formatDateTime(),
+                status: 'processing',
+                handler: a.handler || operator,
+                processRecords: [...(a.processRecords || []), processRecord],
+              }
+            : a
+        ),
+      };
+    }),
+
+  assignAlarmPersonnel: (alarmId, operator, assignees, note) =>
+    set((state) => {
+      const processRecord: AlarmProcessRecord = {
+        id: generateId(),
+        alarmId,
+        handler: operator,
+        handleTime: formatDateTime(),
+        handleNote: note || `指派协同人员: ${assignees.join('、')}`,
+        handleResult: 'assign',
+        assignees,
+      };
+      return {
+        alarms: state.alarms.map((a) =>
+          a.id === alarmId
+            ? {
+                ...a,
+                assignees: [...(a.assignees || []), ...assignees.filter(x => !(a.assignees || []).includes(x))],
+                status: a.status === 'unhandled' ? 'processing' : a.status,
+                processRecords: [...(a.processRecords || []), processRecord],
+              }
+            : a
+        ),
+      };
+    }),
+
   addPipeline: (data) => {
     const state = get();
     const approvedCount = state.pipelines.filter(
@@ -323,7 +380,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                 approvalTime: formatDateTime(),
                 approvalNote: note,
                 lastRejectNote: undefined,
-                approvalHistory: [...p.approvalHistory, historyItem],
+                approvalHistory: [...(p.approvalHistory || []), historyItem],
               }
             : p
         ),
@@ -349,7 +406,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                 approvalTime: formatDateTime(),
                 approvalNote: note,
                 lastRejectNote: note,
-                approvalHistory: [...p.approvalHistory, historyItem],
+                approvalHistory: [...(p.approvalHistory || []), historyItem],
               }
             : p
         ),
@@ -374,7 +431,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                 approver: undefined,
                 approvalTime: undefined,
                 approvalNote: undefined,
-                approvalHistory: [...p.approvalHistory, historyItem],
+                approvalHistory: [...(p.approvalHistory || []), historyItem],
               }
             : p
         ),
@@ -444,6 +501,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           };
           newAbnormalities = [...newAbnormalities, abnormal];
 
+          const cp = checkPoints.find(c => c.id === checkpointId);
           const rectItem: RectificationItem = {
             id: generateId(),
             inspectionId,
@@ -452,6 +510,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             abnormalDescription: abnormal.description,
             checkpointName: abnormal.checkpointName,
             checkpointCode: abnormal.checkpointCode,
+            sectionId: cp?.sectionId || ins.sectionIds[0],
             location: abnormal.location,
             reporter: abnormal.reporter,
             reportTime: abnormal.reportTime,

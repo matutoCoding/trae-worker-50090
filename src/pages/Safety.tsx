@@ -13,6 +13,7 @@ import {
   RefreshCw,
   X,
   User,
+  Users,
   FileText,
   Send,
   History,
@@ -34,7 +35,7 @@ import { environmentData } from '@/data/environment';
 import { tunnelSections } from '@/data/tunnel';
 import { formatDateTime } from '@/utils/format';
 import { useAppStore } from '@/store/useAppStore';
-import { AlarmRecord } from '@/types';
+import { AlarmRecord, AlarmProcessRecord } from '@/types';
 
 export default function Safety() {
   const [selectedSection, setSelectedSection] = useState(tunnelSections[0].id);
@@ -50,9 +51,22 @@ export default function Safety() {
     handleNote: '',
     handleResult: 'processing' as 'processing' | 'resolved',
   });
+  const [showEscalateModal, setShowEscalateModal] = useState<AlarmRecord | null>(null);
+  const [escalateForm, setEscalateForm] = useState({
+    operator: '',
+    note: '',
+  });
+  const [showAssignModal, setShowAssignModal] = useState<AlarmRecord | null>(null);
+  const [assignForm, setAssignForm] = useState({
+    operator: '',
+    assignees: '',
+    note: '',
+  });
 
   const alarms = useAppStore((s) => s.alarms);
   const processAlarm = useAppStore((s) => s.processAlarm);
+  const escalateAlarm = useAppStore((s) => s.escalateAlarm);
+  const assignAlarmPersonnel = useAppStore((s) => s.assignAlarmPersonnel);
 
   const data = environmentData[selectedSection] || [];
 
@@ -86,10 +100,12 @@ export default function Safety() {
     return list.filter((a) => a.status === statusFilter);
   };
 
-  const gasAlarms = filterByStatus(filterByLevel(alarms.filter((a) => a.type === 'gas')), gasStatusFilter);
+  const gasAlarms = filterByStatus(filterByLevel(alarms.filter((a) => a.type === 'gas')), gasStatusFilter)
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   const fireWaterAlarms = filterByStatus(filterByLevel(
     alarms.filter((a) => a.type === 'fire' || a.type === 'waterlogging')
-  ), fireStatusFilter);
+  ), fireStatusFilter)
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   const statusFilters = [
     { key: 'all', label: '全部' },
@@ -104,8 +120,13 @@ export default function Safety() {
   };
 
   const getProcessRecordColor = (handleResult: string) => {
-    if (handleResult === 'resolved') return { bg: 'bg-green-500', text: '已解决', badge: 'bg-green-500/10 text-green-500 border-green-500/30' };
+    if (handleResult === 'resolved' || handleResult === 'alarm') {
+      if (handleResult === 'alarm') return { bg: 'bg-red-500', text: '告警发生', badge: 'bg-red-500/10 text-red-500 border-red-500/30' };
+      return { bg: 'bg-green-500', text: '已解决', badge: 'bg-green-500/10 text-green-500 border-green-500/30' };
+    }
     if (handleResult === 'processing') return { bg: 'bg-blue-500', text: '处理中', badge: 'bg-blue-500/10 text-blue-500 border-blue-500/30' };
+    if (handleResult === 'escalate') return { bg: 'bg-orange-500', text: '升级应急', badge: 'bg-orange-500/10 text-orange-500 border-orange-500/30' };
+    if (handleResult === 'assign') return { bg: 'bg-purple-500', text: '指派人员', badge: 'bg-purple-500/10 text-purple-500 border-purple-500/30' };
     return { bg: 'bg-navy-500', text: '告警', badge: 'bg-navy-500/10 text-slate-300 border-navy-500/30' };
   };
 
@@ -159,6 +180,12 @@ export default function Safety() {
     );
   };
 
+  const renderEmergencyBadge = () => (
+    <span className="inline-flex items-center px-2 py-0.5 text-xs rounded border bg-red-500/10 text-red-500 border-red-500/30 font-medium">
+      应急
+    </span>
+  );
+
   const handleOpenProcess = (alarm: AlarmRecord) => {
     setShowProcessModal(alarm);
     setProcessForm({
@@ -187,6 +214,43 @@ export default function Safety() {
     if (status === 'unhandled') return '立即处理';
     if (status === 'processing') return '继续处理';
     return '已解决';
+  };
+
+  const handleSubmitEscalate = () => {
+    if (!showEscalateModal || !escalateForm.operator.trim()) return;
+    setProcessingId(showEscalateModal.id);
+    setTimeout(() => {
+      escalateAlarm(
+        showEscalateModal.id,
+        escalateForm.operator.trim(),
+        escalateForm.note.trim() || undefined
+      );
+      setProcessingId(null);
+      setShowEscalateModal(null);
+      setShowProcessModal(null);
+      setEscalateForm({ operator: '', note: '' });
+    }, 300);
+  };
+
+  const handleSubmitAssign = () => {
+    if (!showAssignModal || !assignForm.operator.trim() || !assignForm.assignees.trim()) return;
+    setProcessingId(showAssignModal.id);
+    setTimeout(() => {
+      const assignees = assignForm.assignees
+        .split(/[,，、\s]+/)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      assignAlarmPersonnel(
+        showAssignModal.id,
+        assignForm.operator.trim(),
+        assignees,
+        assignForm.note.trim() || undefined
+      );
+      setProcessingId(null);
+      setShowAssignModal(null);
+      setShowProcessModal(null);
+      setAssignForm({ operator: '', assignees: '', note: '' });
+    }, 300);
   };
 
   return (
@@ -404,7 +468,7 @@ export default function Safety() {
                   >
                     {sf.label}
                     <span className={`text-[10px] ${gasStatusFilter === sf.key ? 'text-tech-blue' : 'text-slate-500'} font-mono`}>
-                      ({getStatusFilterCount(alarms.filter((a) => a.type === 'gas'), sf.key})
+                      ({getStatusFilterCount(alarms.filter((a) => a.type === 'gas'), sf.key)})
                     </span>
                   </button>
                 ))}
@@ -442,8 +506,9 @@ export default function Safety() {
                           <StatusBadge status={alarm.status} size="sm" />
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 text-xs text-slate-400 mt-1">
+                      <div className="flex items-center gap-2 text-xs text-slate-400 mt-1 flex-wrap">
                         {renderLevelBadge(alarm.level)}
+                        {alarm.isEmergency && renderEmergencyBadge()}
                         <span className="flex items-center gap-1">
                           <MapPin size={10} />
                           {alarm.location}
@@ -456,6 +521,11 @@ export default function Safety() {
                       {alarm.handler && (
                         <div className="text-xs text-slate-500 mt-1">
                           处理人: {alarm.handler}
+                        </div>
+                      )}
+                      {alarm.assignees && alarm.assignees.length > 0 && (
+                        <div className="text-xs text-slate-500 mt-0.5">
+                          协同: {alarm.assignees.join('、')}
                         </div>
                       )}
                       {alarm.status !== 'resolved' && (
@@ -652,8 +722,9 @@ export default function Safety() {
                         )}
                       </div>
                       <div className="flex items-center justify-between mt-2">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           {renderLevelBadge(alarm.level)}
+                          {alarm.isEmergency && renderEmergencyBadge()}
                           <StatusBadge status={alarm.status} size="sm" />
                         </div>
                         <span className="text-xs text-slate-500">
@@ -663,6 +734,11 @@ export default function Safety() {
                       {alarm.handler && (
                         <div className="text-xs text-slate-500 mt-1">
                           处理人: {alarm.handler}
+                        </div>
+                      )}
+                      {alarm.assignees && alarm.assignees.length > 0 && (
+                        <div className="text-xs text-slate-500 mt-0.5">
+                          协同: {alarm.assignees.join('、')}
                         </div>
                       )}
                       {alarm.status !== 'resolved' && (
@@ -728,7 +804,10 @@ export default function Safety() {
                     {getAlarmIcon(showProcessModal.type)}
                     <span className="text-white font-medium">{showProcessModal.description}</span>
                   </div>
-                  {renderLevelBadge(showProcessModal.level)}
+                  <div className="flex items-center gap-1">
+                    {renderLevelBadge(showProcessModal.level)}
+                    {showProcessModal.isEmergency && renderEmergencyBadge()}
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs mt-2">
                   <div>
@@ -740,6 +819,16 @@ export default function Safety() {
                     <span className="text-slate-300">{formatDateTime(showProcessModal.timestamp)}</span>
                   </div>
                 </div>
+                {showProcessModal.handler && (
+                  <div className="text-xs text-slate-400 mt-2">
+                    处理人: <span className="text-slate-300">{showProcessModal.handler}</span>
+                  </div>
+                )}
+                {showProcessModal.assignees && showProcessModal.assignees.length > 0 && (
+                  <div className="text-xs text-slate-400 mt-1">
+                    协同人员: <span className="text-slate-300">{showProcessModal.assignees.join('、')}</span>
+                  </div>
+                )}
                 <div className="mt-2 pt-2 border-t border-navy-600/50">
                   <StatusBadge status={showProcessModal.status} />
                 </div>
@@ -800,7 +889,29 @@ export default function Safety() {
                 />
               </div>
             </div>
-            <div className="px-6 py-4 border-t border-navy-600 flex justify-end gap-3">
+            <div className="px-6 py-3 border-t border-navy-600 space-y-3">
+              <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setShowEscalateModal(showProcessModal);
+                  setEscalateForm({ operator: processForm.handler || '', note: '' });
+                }}
+                disabled={showProcessModal.isEmergency}
+                className="flex-1 py-2 bg-orange-500/10 hover:bg-orange-500/20 disabled:bg-navy-700/30 disabled:text-slate-500 border border-orange-500/30 disabled:border-navy-600 rounded-md text-xs text-orange-500 disabled:text-slate-500 transition-colors"
+              >
+                升级应急事件
+              </button>
+              <button
+                onClick={() => {
+                  setShowAssignModal(showProcessModal);
+                  setAssignForm({ operator: processForm.handler || '', assignees: '', note: '' });
+                }}
+                className="flex-1 py-2 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 rounded-md text-xs text-purple-500 transition-colors"
+              >
+                指派协同人员
+              </button>
+              </div>
+              <div className="flex justify-end gap-3">
               <button
                 onClick={() => {
                   setShowProcessModal(null);
@@ -818,6 +929,7 @@ export default function Safety() {
                 <Send size={14} />
                 提交处置
               </button>
+              </div>
             </div>
           </div>
         </div>
@@ -851,13 +963,24 @@ export default function Safety() {
 
               {(() => {
                 const records = showHistoryModal.processRecords || [];
+                const getTitle = (handleResult: string, record?: AlarmProcessRecord) => {
+                  switch (handleResult) {
+                    case 'alarm': return '告警发生';
+                    case 'processing': return '处置记录（处理中）';
+                    case 'resolved': return '处置完成（已解决）';
+                    case 'escalate': return '升级应急事件';
+                    case 'assign': return `指派协同人员（${record?.assignees?.join('、') || ''}）`;
+                    default: return '处置记录';
+                  }
+                };
                 const allSteps: Array<{
                   id: string;
-                  type: 'alarm' | 'processing' | 'resolved';
+                  type: string;
                   title: string;
                   operator?: string;
                   time: string;
                   note?: string;
+                  assignees?: string[];
                 }> = [
                   {
                     id: 'alarm-root',
@@ -866,30 +989,27 @@ export default function Safety() {
                     time: showHistoryModal.timestamp,
                     note: showHistoryModal.description,
                   },
-                  ...[...records].reverse().map((r) => ({
+                  ...records.map((r) => ({
                     id: r.id,
-                    type: r.handleResult as 'processing' | 'resolved',
-                    title: r.handleResult === 'resolved' ? '处置完成（已解决）' : '处置记录（处理中）',
+                    type: r.handleResult,
+                    title: getTitle(r.handleResult, r),
                     operator: r.handler,
                     time: r.handleTime,
                     note: r.handleNote,
+                    assignees: r.assignees,
                   })),
                 ];
                 const totalSteps = allSteps.length;
                 return (
                   <div className="relative pl-5">
                     {allSteps.map((step, idx) => {
-                      const dotColor =
-                        step.type === 'alarm' ? 'bg-red-500'
-                          : step.type === 'resolved' ? 'bg-green-500'
-                          : 'bg-blue-500';
-                      const { badge } = getProcessRecordColor(step.type);
+                      const { bg, badge } = getProcessRecordColor(step.type);
                       return (
                         <div key={step.id} className="relative pb-5 last:pb-0">
                           {idx < totalSteps - 1 && (
                             <div className="absolute left-[-14px] top-4 w-0.5 h-full bg-navy-600" />
                           )}
-                          <div className={`absolute left-[-18px] top-0 w-3 h-3 rounded-full border-2 border-navy-800 ${dotColor}`} />
+                          <div className={`absolute left-[-18px] top-0 w-3 h-3 rounded-full border-2 border-navy-800 ${bg}`} />
                           <div className="bg-navy-900/50 border border-navy-600/50 rounded-md p-3">
                             <div className="flex items-center justify-between mb-1">
                               <span className={`inline-flex items-center px-2 py-0.5 text-xs rounded border ${badge}`}>
@@ -923,6 +1043,195 @@ export default function Safety() {
                 className="px-4 py-2 bg-navy-700/50 border border-navy-600 rounded-md text-sm text-slate-300 hover:bg-navy-700 transition-colors"
               >
                 关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEscalateModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-navy-800 border border-navy-600 rounded-lg w-full max-w-md overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-navy-600">
+              <h3 className="text-lg font-medium text-white flex items-center gap-2">
+                <AlertTriangle size={18} className="text-orange-500" />
+                升级应急事件
+              </h3>
+              <button
+                onClick={() => {
+                  setShowEscalateModal(null);
+                  setEscalateForm({ operator: '', note: '' });
+                }}
+                className="text-slate-400 hover:text-white"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="p-3 bg-orange-500/10 border border-orange-500/30 rounded-md">
+                <p className="text-sm text-orange-400">
+                  将该告警升级为应急事件，启动应急响应流程。
+                </p>
+              </div>
+
+              <div>
+                <label className="text-sm text-slate-300 block mb-1">
+                  操作人 <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <User
+                    size={14}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+                  <input
+                    type="text"
+                    value={escalateForm.operator}
+                    onChange={(e) =>
+                      setEscalateForm({ ...escalateForm, operator: e.target.value })
+                    }
+                    className="w-full h-9 pl-8 pr-3 bg-navy-900 border border-navy-600 rounded-md text-sm text-white focus:outline-none focus:border-orange-500/50"
+                    placeholder="请输入操作人姓名"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm text-slate-300 block mb-1">
+                  升级说明
+                </label>
+                <textarea
+                  rows={3}
+                  value={escalateForm.note}
+                  onChange={(e) =>
+                    setEscalateForm({ ...escalateForm, note: e.target.value })
+                  }
+                  className="w-full px-3 py-2 bg-navy-900 border border-navy-600 rounded-md text-sm text-white focus:outline-none focus:border-orange-500/50 resize-none"
+                  placeholder="请输入升级原因和说明（选填）..."
+                />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-navy-600 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowEscalateModal(null);
+                  setEscalateForm({ operator: '', note: '' });
+                }}
+                className="px-4 py-2 bg-navy-700/50 border border-navy-600 rounded-md text-sm text-slate-300 hover:bg-navy-700 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSubmitEscalate}
+                disabled={!escalateForm.operator.trim()}
+                className="px-4 py-2 bg-orange-500 text-white text-sm rounded-md hover:bg-orange-500/90 disabled:bg-navy-700 disabled:text-slate-500 transition-colors flex items-center gap-1"
+              >
+                <AlertTriangle size={14} />
+                确认升级
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAssignModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-navy-800 border border-navy-600 rounded-lg w-full max-w-md overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-navy-600">
+              <h3 className="text-lg font-medium text-white flex items-center gap-2">
+                <User size={18} className="text-purple-500" />
+                指派协同人员
+              </h3>
+              <button
+                onClick={() => {
+                  setShowAssignModal(null);
+                  setAssignForm({ operator: '', assignees: '', note: '' });
+                }}
+                className="text-slate-400 hover:text-white"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-md">
+                <p className="text-sm text-purple-400">
+                  指派协同人员共同处理该告警，多人用逗号或空格分隔。
+                </p>
+              </div>
+
+              <div>
+                <label className="text-sm text-slate-300 block mb-1">
+                  操作人 <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <User
+                    size={14}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+                  <input
+                    type="text"
+                    value={assignForm.operator}
+                    onChange={(e) =>
+                      setAssignForm({ ...assignForm, operator: e.target.value })
+                    }
+                    className="w-full h-9 pl-8 pr-3 bg-navy-900 border border-navy-600 rounded-md text-sm text-white focus:outline-none focus:border-purple-500/50"
+                    placeholder="请输入操作人姓名"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm text-slate-300 block mb-1">
+                  协同人员 <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <Users
+                    size={14}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+                  <input
+                    type="text"
+                    value={assignForm.assignees}
+                    onChange={(e) =>
+                      setAssignForm({ ...assignForm, assignees: e.target.value })
+                    }
+                    className="w-full h-9 pl-8 pr-3 bg-navy-900 border border-navy-600 rounded-md text-sm text-white focus:outline-none focus:border-purple-500/50"
+                    placeholder="多人用逗号或空格分隔，如：张三、李四"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm text-slate-300 block mb-1">
+                  指派说明
+                </label>
+                <textarea
+                  rows={3}
+                  value={assignForm.note}
+                  onChange={(e) =>
+                    setAssignForm({ ...assignForm, note: e.target.value })
+                  }
+                  className="w-full px-3 py-2 bg-navy-900 border border-navy-600 rounded-md text-sm text-white focus:outline-none focus:border-purple-500/50 resize-none"
+                  placeholder="请输入指派说明（选填）..."
+                />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-navy-600 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowAssignModal(null);
+                  setAssignForm({ operator: '', assignees: '', note: '' });
+                }}
+                className="px-4 py-2 bg-navy-700/50 border border-navy-600 rounded-md text-sm text-slate-300 hover:bg-navy-700 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSubmitAssign}
+                disabled={!assignForm.operator.trim() || !assignForm.assignees.trim()}
+                className="px-4 py-2 bg-purple-500 text-white text-sm rounded-md hover:bg-purple-500/90 disabled:bg-navy-700 disabled:text-slate-500 transition-colors flex items-center gap-1"
+              >
+                <Send size={14} />
+                确认指派
               </button>
             </div>
           </div>

@@ -21,6 +21,7 @@ import {
   History,
   RotateCcw,
   AlertCircle,
+  Building2,
 } from 'lucide-react';
 import SectionCard from '@/components/cards/SectionCard';
 import StatCard from '@/components/cards/StatCard';
@@ -62,11 +63,15 @@ export default function PipelinePage() {
   const pipelineStats = useMemo(() => {
     const approved = pipelines.filter((p) => p.approvalStatus === 'approved');
     const pending = pipelines.filter((p) => p.approvalStatus === 'pending');
+    const rejected = pipelines.filter((p) => p.approvalStatus === 'rejected');
     const power = approved.filter((p) => p.type === 'power').length;
     const gas = approved.filter((p) => p.type === 'gas').length;
     const water = approved.filter((p) => p.type === 'water').length;
     const communication = approved.filter((p) => p.type === 'communication').length;
     const totalLength = approved.reduce((sum, p) => sum + p.length, 0);
+    const totalApproved = approved.length;
+    const totalReviewed = totalApproved + rejected.length;
+    const approvalRate = totalReviewed > 0 ? ((totalApproved / totalReviewed) * 100).toFixed(1) : '0.0';
     return {
       total: approved.length,
       power,
@@ -75,6 +80,8 @@ export default function PipelinePage() {
       communication,
       totalLength,
       pending: pending.length,
+      rejected: rejected.length,
+      approvalRate,
     };
   }, [pipelines]);
 
@@ -107,6 +114,20 @@ export default function PipelinePage() {
   };
 
   const filteredPipelines = getFilteredPipelines();
+
+  const currentPipeline = useMemo(() => {
+    if (!selectedPipeline) return null;
+    return pipelines.find((p) => p.id === selectedPipeline.id) || null;
+  }, [pipelines, selectedPipeline]);
+
+  const ownerPipelineStats = useMemo(() => {
+    if (!currentPipeline) return { total: 0, approved: 0 };
+    const ownerPipelines = pipelines.filter((p) => p.owner === currentPipeline.owner);
+    return {
+      total: ownerPipelines.length,
+      approved: ownerPipelines.filter((p) => p.approvalStatus === 'approved').length,
+    };
+  }, [pipelines, currentPipeline]);
 
   const getTypeIcon = (type: string) => {
     switch (type) {
@@ -323,6 +344,39 @@ export default function PipelinePage() {
           </div>
         </div>
 
+        {activeTab === 'pending' && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+              <div className="flex items-center gap-2 mb-1">
+                <Clock size={14} className="text-yellow-500" />
+                <span className="text-xs text-slate-400">待审批</span>
+              </div>
+              <p className="text-xl font-semibold text-yellow-500">{pipelineStats.pending}</p>
+            </div>
+            <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+              <div className="flex items-center gap-2 mb-1">
+                <CheckCircle2 size={14} className="text-green-500" />
+                <span className="text-xs text-slate-400">已通过</span>
+              </div>
+              <p className="text-xl font-semibold text-green-500">{pipelineStats.total}</p>
+            </div>
+            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+              <div className="flex items-center gap-2 mb-1">
+                <XCircle size={14} className="text-red-500" />
+                <span className="text-xs text-slate-400">已驳回</span>
+              </div>
+              <p className="text-xl font-semibold text-red-500">{pipelineStats.rejected}</p>
+            </div>
+            <div className="p-3 bg-tech-blue/10 border border-tech-blue/30 rounded-lg">
+              <div className="flex items-center gap-2 mb-1">
+                <FileCheck size={14} className="text-tech-blue" />
+                <span className="text-xs text-slate-400">审批通过率</span>
+              </div>
+              <p className="text-xl font-semibold text-tech-blue">{pipelineStats.approvalRate}%</p>
+            </div>
+          </div>
+        )}
+
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -531,21 +585,21 @@ export default function PipelinePage() {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-6">
-              {selectedPipeline ? (
+              {currentPipeline ? (
                 <div className="space-y-6">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="text-xs text-slate-400 block mb-1">
                         管线名称
                       </label>
-                      <p className="text-white">{selectedPipeline.name}</p>
+                      <p className="text-white">{currentPipeline.name}</p>
                     </div>
                     <div>
                       <label className="text-xs text-slate-400 block mb-1">
                         管线编号
                       </label>
                       <p className="text-white font-mono">
-                        {selectedPipeline.code}
+                        {currentPipeline.code}
                       </p>
                     </div>
                     <div>
@@ -553,64 +607,70 @@ export default function PipelinePage() {
                         管线类型
                       </label>
                       <p className="text-white">
-                        {getTypeText(selectedPipeline.type)}
+                        {getTypeText(currentPipeline.type)}
                       </p>
                     </div>
                     <div>
                       <label className="text-xs text-slate-400 block mb-1">
                         管径
                       </label>
-                      <p className="text-white">{selectedPipeline.diameter}mm</p>
+                      <p className="text-white">{currentPipeline.diameter}mm</p>
                     </div>
                     <div>
                       <label className="text-xs text-slate-400 block mb-1">
                         长度
                       </label>
                       <p className="text-white">
-                        {formatLength(selectedPipeline.length)}
+                        {formatLength(currentPipeline.length)}
                       </p>
                     </div>
                     <div>
                       <label className="text-xs text-slate-400 block mb-1">
                         权属单位
                       </label>
-                      <p className="text-white">{selectedPipeline.owner}</p>
+                      <div className="flex items-center gap-2">
+                        <Building2 size={14} className="text-slate-400" />
+                        <p className="text-white">{currentPipeline.owner}</p>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">
+                        该单位共 {ownerPipelineStats.total} 条管线，已入廊 {ownerPipelineStats.approved} 条
+                      </p>
                     </div>
                     <div>
                       <label className="text-xs text-slate-400 block mb-1">
                         入廊日期
                       </label>
-                      <p className="text-white">{selectedPipeline.inDate}</p>
+                      <p className="text-white">{currentPipeline.inDate}</p>
                     </div>
                     <div>
                       <label className="text-xs text-slate-400 block mb-1">
                         运行状态
                       </label>
-                      <StatusBadge status={selectedPipeline.status} />
+                      <StatusBadge status={currentPipeline.status} />
                     </div>
                   </div>
-                  {selectedPipeline.voltage && (
+                  {currentPipeline.voltage && (
                     <div>
                       <label className="text-xs text-slate-400 block mb-1">
                         电压等级
                       </label>
-                      <p className="text-white">{selectedPipeline.voltage}</p>
+                      <p className="text-white">{currentPipeline.voltage}</p>
                     </div>
                   )}
-                  {selectedPipeline.pressure && (
+                  {currentPipeline.pressure && (
                     <div>
                       <label className="text-xs text-slate-400 block mb-1">
                         压力等级
                       </label>
-                      <p className="text-white">{selectedPipeline.pressure}</p>
+                      <p className="text-white">{currentPipeline.pressure}</p>
                     </div>
                   )}
-                  {selectedPipeline.material && (
+                  {currentPipeline.material && (
                     <div>
                       <label className="text-xs text-slate-400 block mb-1">
                         材质
                       </label>
-                      <p className="text-white">{selectedPipeline.material}</p>
+                      <p className="text-white">{currentPipeline.material}</p>
                     </div>
                   )}
                   <div>
@@ -618,42 +678,37 @@ export default function PipelinePage() {
                       审批状态
                     </label>
                     <div className="flex items-center gap-2">
-                      <FileCheck size={16} className={selectedPipeline.approvalStatus === 'approved' ? 'text-green-500' : selectedPipeline.approvalStatus === 'rejected' ? 'text-red-500' : 'text-yellow-500'} />
-                      {renderApprovalBadge(selectedPipeline.approvalStatus)}
+                      <FileCheck size={16} className={currentPipeline.approvalStatus === 'approved' ? 'text-green-500' : currentPipeline.approvalStatus === 'rejected' ? 'text-red-500' : 'text-yellow-500'} />
+                      {renderApprovalBadge(currentPipeline.approvalStatus)}
                     </div>
-                    {selectedPipeline.lastRejectNote && (
-                      <div className="mt-2 p-2.5 bg-red-500/10 border border-red-500/30 rounded-md">
-                        <p className="text-xs text-red-400 font-medium flex items-center gap-1 mb-1">
-                          <AlertCircle size={12} />
-                          上次驳回原因
-                        </p>
-                        <p className="text-xs text-slate-300">
-                          {selectedPipeline.lastRejectNote}
-                        </p>
+                    {currentPipeline.lastRejectNote && (
+                      <div className="mt-2 text-xs text-slate-500">
+                        <span className="text-slate-400">上次驳回原因：</span>
+                        {currentPipeline.lastRejectNote}
                       </div>
                     )}
-                    {selectedPipeline.approver && (
+                    {currentPipeline.approver && (
                       <p className="text-xs text-slate-400 mt-2">
-                        审批人: {selectedPipeline.approver} · {selectedPipeline.approvalTime}
+                        审批人: {currentPipeline.approver} · {currentPipeline.approvalTime}
                       </p>
                     )}
-                    {selectedPipeline.approvalNote && (
+                    {currentPipeline.approvalNote && (
                       <p className="text-xs text-slate-500 mt-1 p-2 bg-navy-900/50 rounded">
-                        审批意见: {selectedPipeline.approvalNote}
+                        审批意见: {currentPipeline.approvalNote}
                       </p>
                     )}
                   </div>
 
-                  {selectedPipeline.approvalHistory && selectedPipeline.approvalHistory.length > 0 && (
+                  {currentPipeline.approvalHistory && currentPipeline.approvalHistory.length > 0 && (
                     <div className="pt-4 mt-4 border-t border-navy-600/50">
                       <label className="text-xs text-slate-400 block mb-3 flex items-center gap-1">
                         <History size={12} />
                         审批时间线
                       </label>
                       <div className="relative pl-5">
-                        {selectedPipeline.approvalHistory.map((item, idx) => {
+                        {currentPipeline.approvalHistory.map((item, idx) => {
                           const info = getApprovalActionInfo(item.action);
-                          const total = selectedPipeline.approvalHistory?.length || 0;
+                          const total = currentPipeline.approvalHistory?.length || 0;
                           return (
                             <div key={item.id} className="relative pb-4 last:pb-0">
                               {idx < total - 1 && (
@@ -900,11 +955,11 @@ export default function PipelinePage() {
               >
                 {selectedPipeline ? '关闭' : '取消'}
               </button>
-              {selectedPipeline && selectedPipeline.approvalStatus === 'rejected' && (
+              {currentPipeline && currentPipeline.approvalStatus === 'rejected' && (
                 <button
                   onClick={() => {
                     if (confirm('确认重新提交该管线至审批流程？')) {
-                      resubmitPipeline(selectedPipeline.id);
+                      resubmitPipeline(currentPipeline.id);
                     }
                   }}
                   className="flex items-center gap-1 px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition-colors"

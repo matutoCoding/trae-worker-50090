@@ -24,6 +24,12 @@ import {
   ThumbsDown,
   History,
   ArrowRight,
+  Layers,
+  TrendingUp,
+  Timer,
+  Hash,
+  UserPlus,
+  ChevronDown,
 } from 'lucide-react';
 import SectionCard from '@/components/cards/SectionCard';
 import StatCard from '@/components/cards/StatCard';
@@ -32,6 +38,7 @@ import {
   checkPoints,
   inspectors,
 } from '@/data/inspection';
+import { tunnelSections } from '@/data/tunnel';
 import { useAppStore } from '@/store/useAppStore';
 import {
   InspectionRecord,
@@ -61,6 +68,10 @@ export default function Inspection() {
   });
   const [rectificationFilter, setRectificationFilter] = useState<string>('all');
   const [rectificationSearch, setRectificationSearch] = useState('');
+  const [sectionFilter, setSectionFilter] = useState<string>('all');
+  const [reporterFilter, setReporterFilter] = useState<string>('all');
+  const [handlerFilter, setHandlerFilter] = useState<string>('all');
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
 
   const inspections = useAppStore((s) => s.inspections);
   const rectifications = useAppStore((s) => s.rectifications);
@@ -135,6 +146,15 @@ export default function Inspection() {
     if (rectificationFilter !== 'all') {
       list = list.filter((r) => r.status === rectificationFilter);
     }
+    if (sectionFilter !== 'all') {
+      list = list.filter((r) => r.sectionId === sectionFilter);
+    }
+    if (reporterFilter !== 'all') {
+      list = list.filter((r) => r.reporter === reporterFilter);
+    }
+    if (handlerFilter !== 'all') {
+      list = list.filter((r) => r.handler === handlerFilter);
+    }
     if (rectificationSearch.trim()) {
       const keyword = rectificationSearch.trim().toLowerCase();
       list = list.filter(
@@ -145,7 +165,46 @@ export default function Inspection() {
       );
     }
     return list;
-  }, [rectifications, rectificationFilter, rectificationSearch]);
+  }, [rectifications, rectificationFilter, rectificationSearch, sectionFilter, reporterFilter, handlerFilter]);
+
+  const reporters = useMemo(() => {
+    const set = new Set(rectifications.map((r) => r.reporter));
+    return Array.from(set);
+  }, [rectifications]);
+
+  const handlers = useMemo(() => {
+    const set = new Set(rectifications.filter((r) => r.handler).map((r) => r.handler!));
+    return Array.from(set);
+  }, [rectifications]);
+
+  const sectionStats = useMemo(() => {
+    return tunnelSections.map((section) => {
+      const sectionRects = rectifications.filter((r) => r.sectionId === section.id);
+      const total = sectionRects.length;
+      const resolved = sectionRects.filter((r) => r.status === 'resolved').length;
+      const closeRate = total > 0 ? Math.round((resolved / total) * 100) : 0;
+      let avgHours = 0;
+      const resolvedItems = sectionRects.filter((r) => r.status === 'resolved' && r.reviewTime);
+      if (resolvedItems.length > 0) {
+        const totalMs = resolvedItems.reduce((sum, r) => {
+          const start = new Date(r.reportTime).getTime();
+          const end = new Date(r.reviewTime || r.handleTime || r.reportTime).getTime();
+          return sum + (end - start);
+        }, 0);
+        avgHours = Math.round((totalMs / resolvedItems.length) / (1000 * 60 * 60) * 10) / 10;
+      }
+      return {
+        section,
+        total,
+        resolved,
+        closeRate,
+        avgHours,
+        pending: sectionRects.filter((r) => r.status === 'pending' || r.status === 'processing').length,
+        reviewing: sectionRects.filter((r) => r.status === 'reviewing').length,
+        rejected: sectionRects.filter((r) => r.status === 'rejected').length,
+      };
+    }).filter((s) => s.total > 0 || true);
+  }, [rectifications]);
 
   const handleSelectTask = (taskId: string) => {
     const task = inspections.find((r) => r.id === taskId);
@@ -389,129 +448,339 @@ export default function Inspection() {
 
       {activeTab === 'rectification' ? (
         <div className="space-y-6">
-          <SectionCard title="整改项列表" icon={Wrench}>
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-              <div className="flex items-center gap-2 flex-wrap">
-                {[
-                  { key: 'all', label: '全部' },
-                  { key: 'pending', label: '待处理' },
-                  { key: 'processing', label: '处理中' },
-                  { key: 'reviewing', label: '待复核' },
-                  { key: 'resolved', label: '已整改' },
-                  { key: 'rejected', label: '复核不通过' },
-                ].map((f) => (
-                  <button
-                    key={f.key}
-                    onClick={() => setRectificationFilter(f.key)}
-                    className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
-                      rectificationFilter === f.key
-                        ? 'bg-tech-blue text-white'
-                        : 'bg-navy-700/50 border border-navy-600 text-slate-300 hover:bg-navy-700'
-                    }`}
-                  >
-                    {f.label}
-                  </button>
-                ))}
-              </div>
-              <div className="relative">
-                <Search
-                  size={14}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                />
-                <input
-                  type="text"
-                  placeholder="搜索整改项..."
-                  value={rectificationSearch}
-                  onChange={(e) => setRectificationSearch(e.target.value)}
-                  className="w-56 h-8 pl-8 pr-3 bg-navy-900/50 border border-navy-600 rounded-md text-sm text-white placeholder-slate-500 focus:outline-none focus:border-tech-blue/50"
-                />
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-navy-600/50 bg-navy-900/30">
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium">
-                      整改项
-                    </th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium">
-                      所属任务
-                    </th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium">
-                      位置
-                    </th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium">
-                      上报人
-                    </th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium">
-                      处理人
-                    </th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium">
-                      状态
-                    </th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium">
-                      操作
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredRectifications.map((rect) => (
-                    <tr
-                      key={rect.id}
-                      className="border-b border-navy-600/30 hover:bg-navy-700/20"
-                    >
-                      <td className="py-3 px-4 text-white max-w-xs">
-                        <div className="font-medium">{rect.abnormalDescription}</div>
-                        <div className="text-xs text-slate-400 mt-0.5">{rect.reportTime}</div>
-                      </td>
-                      <td className="py-3 px-4 text-slate-300 text-xs">
-                        {rect.inspectionName}
-                      </td>
-                      <td className="py-3 px-4 text-slate-300 text-xs">
-                        {rect.checkpointName}
-                        <div className="text-slate-500">{rect.location}</div>
-                      </td>
-                      <td className="py-3 px-4 text-slate-300 text-xs">
-                        {rect.reporter}
-                      </td>
-                      <td className="py-3 px-4 text-slate-300 text-xs">
-                        <div>{rect.handler || '-'}</div>
-                        {rect.reviewer && (
-                          <div className="text-slate-500 mt-0.5">复核人: {rect.reviewer}</div>
-                        )}
-                      </td>
-                      <td className="py-3 px-4">
-                        {renderRectificationStatusBadge(rect.status)}
-                      </td>
-                      <td className="py-3 px-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { key: 'pending', label: '待处理', value: stats.pendingRect, color: 'red', icon: AlertTriangle },
+              { key: 'reviewing', label: '待复核', value: stats.reviewing, color: 'purple', icon: Clock },
+              { key: 'rejected', label: '复核不通过', value: stats.rejected, color: 'orange', icon: XCircle },
+              { key: 'resolved', label: '已整改', value: stats.resolved, color: 'green', icon: CheckCircle },
+            ].map((item) => {
+              const Icon = item.icon;
+              const isActive = rectificationFilter === item.key;
+              return (
+                <button
+                  key={item.key}
+                  onClick={() => {
+                    setRectificationFilter(isActive ? 'all' : item.key);
+                    setSectionFilter('all');
+                    setReporterFilter('all');
+                    setHandlerFilter('all');
+                  }}
+                  className={`p-4 rounded-lg border text-left transition-all ${
+                    isActive
+                      ? 'bg-tech-blue/10 border-tech-blue/50 ring-1 ring-tech-blue/30'
+                      : 'bg-navy-800/60 border-navy-600/50 hover:border-navy-500'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className={`text-xs ${isActive ? 'text-tech-blue' : 'text-slate-400'}`}>
+                      {item.label}
+                    </span>
+                    <Icon size={16} className={isActive ? 'text-tech-blue' : `text-${item.color}-500`} />
+                  </div>
+                  <div className={`text-2xl font-bold font-mono ${isActive ? 'text-tech-blue' : 'text-white'}`}>
+                    {item.value}
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    点击筛选
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 space-y-6">
+              <SectionCard title="整改工单台账" icon={Wrench}>
+                <div className="space-y-3 mb-4">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {[
+                        { key: 'all', label: '全部' },
+                        { key: 'pending', label: '待处理' },
+                        { key: 'processing', label: '处理中' },
+                        { key: 'reviewing', label: '待复核' },
+                        { key: 'rejected', label: '复核不通过' },
+                        { key: 'resolved', label: '已整改' },
+                      ].map((f) => (
                         <button
-                          onClick={() => {
-                            setShowRectificationDetail(rect);
-                            setRectificationForm({
-                              handler: rect.handler || '',
-                              handleNote: rect.handleNote || '',
-                            });
-                            setReviewForm({ reviewer: '', reviewNote: '' });
-                          }}
-                          className="flex items-center gap-1 px-2 py-1 text-xs text-tech-blue hover:bg-tech-blue/10 rounded transition-colors"
+                          key={f.key}
+                          onClick={() => setRectificationFilter(f.key)}
+                          className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+                            rectificationFilter === f.key
+                              ? 'bg-tech-blue text-white'
+                              : 'bg-navy-700/50 border border-navy-600 text-slate-300 hover:bg-navy-700'
+                          }`}
                         >
-                          <Eye size={12} />
-                          查看
+                          {f.label}
                         </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {filteredRectifications.length === 0 && (
-                    <tr>
-                      <td colSpan={7} className="py-8 text-center text-slate-500">
-                        暂无整改项
-                      </td>
-                    </tr>
+                      ))}
+                    </div>
+                    <div className="relative">
+                      <Search
+                        size={14}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                      />
+                      <input
+                        type="text"
+                        placeholder="搜索整改项..."
+                        value={rectificationSearch}
+                        onChange={(e) => setRectificationSearch(e.target.value)}
+                        className="w-56 h-8 pl-8 pr-3 bg-navy-900/50 border border-navy-600 rounded-md text-sm text-white placeholder-slate-500 focus:outline-none focus:border-tech-blue/50"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-xs text-slate-400 block mb-1 flex items-center gap-1">
+                        <Layers size={12} />
+                        管廊段
+                      </label>
+                      <select
+                        value={sectionFilter}
+                        onChange={(e) => setSectionFilter(e.target.value)}
+                        className="w-full h-8 px-2 bg-navy-900/50 border border-navy-600 rounded-md text-xs text-white focus:outline-none focus:border-tech-blue/50"
+                      >
+                        <option value="all">全部管廊段</option>
+                        {tunnelSections.map((s) => (
+                          <option key={s.id} value={s.id}>{s.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-400 block mb-1 flex items-center gap-1">
+                        <User size={12} />
+                        巡检员
+                      </label>
+                      <select
+                        value={reporterFilter}
+                        onChange={(e) => setReporterFilter(e.target.value)}
+                        className="w-full h-8 px-2 bg-navy-900/50 border border-navy-600 rounded-md text-xs text-white focus:outline-none focus:border-tech-blue/50"
+                      >
+                        <option value="all">全部巡检员</option>
+                        {reporters.map((r) => (
+                          <option key={r} value={r}>{r}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-400 block mb-1 flex items-center gap-1">
+                        <Wrench size={12} />
+                        处理人
+                      </label>
+                      <select
+                        value={handlerFilter}
+                        onChange={(e) => setHandlerFilter(e.target.value)}
+                        className="w-full h-8 px-2 bg-navy-900/50 border border-navy-600 rounded-md text-xs text-white focus:outline-none focus:border-tech-blue/50"
+                      >
+                        <option value="all">全部处理人</option>
+                        {handlers.length === 0 ? (
+                          <option value="all" disabled>暂无</option>
+                        ) : (
+                          handlers.map((h) => (
+                            <option key={h} value={h}>{h}</option>
+                          ))
+                        )}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-navy-600/50 bg-navy-900/30">
+                        <th className="text-left py-3 px-4 text-slate-400 font-medium">
+                          工单编号
+                        </th>
+                        <th className="text-left py-3 px-4 text-slate-400 font-medium">
+                          整改项
+                        </th>
+                        <th className="text-left py-3 px-4 text-slate-400 font-medium">
+                          管廊段
+                        </th>
+                        <th className="text-left py-3 px-4 text-slate-400 font-medium">
+                          巡检员
+                        </th>
+                        <th className="text-left py-3 px-4 text-slate-400 font-medium">
+                          处理人
+                        </th>
+                        <th className="text-left py-3 px-4 text-slate-400 font-medium">
+                          状态
+                        </th>
+                        <th className="text-left py-3 px-4 text-slate-400 font-medium">
+                          操作
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredRectifications.map((rect) => {
+                        const section = tunnelSections.find((s) => s.id === rect.sectionId);
+                        return (
+                          <tr
+                            key={rect.id}
+                            className="border-b border-navy-600/30 hover:bg-navy-700/20"
+                          >
+                            <td className="py-3 px-4">
+                              <span className="text-xs font-mono text-tech-blue bg-tech-blue/10 px-2 py-0.5 rounded">
+                                ZG{rect.id.padStart(4, '0')}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-white max-w-xs">
+                              <div className="font-medium">{rect.abnormalDescription}</div>
+                              <div className="text-xs text-slate-400 mt-0.5">{rect.reportTime}</div>
+                            </td>
+                            <td className="py-3 px-4 text-slate-300 text-xs">
+                              {section?.name || '-'}
+                              <div className="text-slate-500">{rect.location}</div>
+                            </td>
+                            <td className="py-3 px-4 text-slate-300 text-xs">
+                              {rect.reporter}
+                            </td>
+                            <td className="py-3 px-4 text-slate-300 text-xs">
+                              <div>{rect.handler || '-'}</div>
+                              {rect.reviewer && (
+                                <div className="text-slate-500 mt-0.5">复核: {rect.reviewer}</div>
+                              )}
+                            </td>
+                            <td className="py-3 px-4">
+                              {renderRectificationStatusBadge(rect.status)}
+                            </td>
+                            <td className="py-3 px-4">
+                              <button
+                                onClick={() => {
+                                  setShowRectificationDetail(rect);
+                                  setRectificationForm({
+                                    handler: rect.handler || '',
+                                    handleNote: rect.handleNote || '',
+                                  });
+                                  setReviewForm({ reviewer: '', reviewNote: '' });
+                                }}
+                                className="flex items-center gap-1 px-2 py-1 text-xs text-tech-blue hover:bg-tech-blue/10 rounded transition-colors"
+                              >
+                                <Eye size={12} />
+                                详情
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {filteredRectifications.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="py-8 text-center text-slate-500">
+                            暂无符合条件的整改工单
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-3 text-xs text-slate-500 flex items-center justify-between">
+                  <span>共 {filteredRectifications.length} 条记录</span>
+                  {(sectionFilter !== 'all' || reporterFilter !== 'all' || handlerFilter !== 'all' || rectificationFilter !== 'all') && (
+                    <button
+                      onClick={() => {
+                        setSectionFilter('all');
+                        setReporterFilter('all');
+                        setHandlerFilter('all');
+                        setRectificationFilter('all');
+                        setRectificationSearch('');
+                      }}
+                      className="text-tech-blue hover:underline"
+                    >
+                      清除全部筛选
+                    </button>
                   )}
-                </tbody>
-              </table>
+                </div>
+              </SectionCard>
             </div>
-          </SectionCard>
+
+            <div className="space-y-6">
+              <SectionCard title="管廊段隐患统计" icon={Layers}>
+                <div className="space-y-4">
+                  {sectionStats.map((stat) => (
+                    <div
+                      key={stat.section.id}
+                      className={`p-3 rounded-lg border transition-colors cursor-pointer ${
+                        sectionFilter === stat.section.id
+                          ? 'bg-tech-blue/10 border-tech-blue/40'
+                          : 'bg-navy-900/50 border-navy-600/50 hover:border-navy-500'
+                      }`}
+                      onClick={() => {
+                        setSectionFilter(sectionFilter === stat.section.id ? 'all' : stat.section.id);
+                      }}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-white font-medium">{stat.section.name}</span>
+                        <span className="text-xs text-slate-400">{stat.total} 项</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs mb-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400">闭环率</span>
+                          <span className="text-green-500 font-medium">{stat.closeRate}%</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400">均处理时</span>
+                          <span className="text-tech-blue font-medium">{stat.avgHours}h</span>
+                        </div>
+                      </div>
+                      <div className="w-full h-1.5 bg-navy-700 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-green-500 rounded-full transition-all"
+                          style={{ width: `${stat.closeRate}%` }}
+                        ></div>
+                      </div>
+                      <div className="flex items-center justify-between mt-2 text-[10px] text-slate-500">
+                        <span>待处理 {stat.pending}</span>
+                        <span>待复核 {stat.reviewing}</span>
+                        <span>不通过 {stat.rejected}</span>
+                        <span className="text-green-500">已整改 {stat.resolved}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </SectionCard>
+
+              <SectionCard title="工单效率指标" icon={TrendingUp}>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center">
+                        <CheckCircle size={14} className="text-green-500" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-400">整改闭环率</p>
+                        <p className="text-lg font-bold text-white font-mono">
+                          {Math.round((stats.resolved / Math.max(rectifications.length, 1)) * 100)}%
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="w-full h-2 bg-navy-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-green-500 rounded-full"
+                      style={{
+                        width: `${(stats.resolved / Math.max(rectifications.length, 1)) * 100}%`,
+                      }}
+                    ></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 pt-2 border-t border-navy-600/50">
+                    <div>
+                      <p className="text-xs text-slate-400 mb-1">总工单</p>
+                      <p className="text-lg font-bold text-white font-mono">{rectifications.length}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-400 mb-1">处理中</p>
+                      <p className="text-lg font-bold text-yellow-500 font-mono">
+                        {stats.pendingRect + stats.reviewing}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </SectionCard>
+            </div>
+          </div>
         </div>
       ) : activeTab === 'robot' ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1135,89 +1404,144 @@ export default function Inspection() {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs text-slate-400 block mb-1">
-                    巡检任务
-                  </label>
-                  <p className="text-white text-sm">{showAbnormalDetail.inspection.taskName}</p>
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 block mb-1">
-                    整改状态
-                  </label>
-                  {renderRectificationStatusBadge(showAbnormalDetail.abnormal.status)}
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 block mb-1">
-                    检查点
-                  </label>
-                  <p className="text-white text-sm">{showAbnormalDetail.abnormal.checkpointName}</p>
-                  <p className="text-xs text-slate-400">{showAbnormalDetail.abnormal.checkpointCode}</p>
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 block mb-1">
-                    位置
-                  </label>
-                  <p className="text-white text-sm">{showAbnormalDetail.abnormal.location}</p>
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 block mb-1">
-                    上报人
-                  </label>
-                  <p className="text-white text-sm">{showAbnormalDetail.abnormal.reporter}</p>
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 block mb-1">
-                    上报时间
-                  </label>
-                  <p className="text-white text-sm font-mono text-xs">
-                    {showAbnormalDetail.abnormal.reportTime}
-                  </p>
-                </div>
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">
-                  异常描述
-                </label>
-                <p className="text-white text-sm p-3 bg-navy-900/50 border border-navy-600/50 rounded-md">
-                  {showAbnormalDetail.abnormal.description}
-                </p>
-              </div>
               {(() => {
                 const relatedRect = rectifications.find(
                   (r) => r.abnormalId === showAbnormalDetail.abnormal.id
                 );
-                if (relatedRect && relatedRect.timeline.length > 1) {
-                  return (
-                    <div>
-                      <label className="text-xs text-slate-400 block mb-2">
-                        整改时间线
-                      </label>
-                      <div className="relative pl-5">
-                        {relatedRect.timeline.map((tl, i) => (
-                          <div key={tl.id} className="relative pb-4 last:pb-0">
-                            {i < relatedRect.timeline.length - 1 && (
-                              <div className="absolute left-[-14px] top-4 w-0.5 h-full bg-navy-600" />
-                            )}
-                            <div className="absolute left-[-18px] top-0 w-3 h-3 rounded-full bg-tech-blue border-2 border-navy-800" />
-                            <div className="p-3 bg-navy-900/50 border border-navy-600/50 rounded-md">
-                              <div className="flex items-center justify-between mb-1">
-                                {renderTimelineAction(tl.action)}
-                                <span className="text-xs text-slate-500 font-mono">{tl.time.split(' ')[1]}</span>
-                              </div>
-                              <p className="text-xs text-slate-400">操作人: {tl.operator}</p>
-                              {tl.note && (
-                                <p className="text-xs text-slate-300 mt-1">{tl.note}</p>
-                              )}
-                            </div>
+                const currentResponsible = relatedRect?.handler || relatedRect?.reviewer || '待分配';
+                const getNextAction = () => {
+                  const status = relatedRect?.status || 'pending';
+                  switch (status) {
+                    case 'pending':
+                      return { text: '等待开始整改', action: '需指定处理人并开始整改', color: 'text-yellow-500' };
+                    case 'processing':
+                      return { text: '整改进行中', action: '处理人完成后提交复核', color: 'text-blue-500' };
+                    case 'reviewing':
+                      return { text: '等待复核', action: '复核人需确认整改结果', color: 'text-purple-500' };
+                    case 'rejected':
+                      return { text: '复核不通过', action: '需重新整改并再次提交', color: 'text-orange-500' };
+                    case 'resolved':
+                      return { text: '已闭环', action: '整改完成，无需操作', color: 'text-green-500' };
+                    default:
+                      return { text: '待处理', action: '请跟进处理', color: 'text-slate-400' };
+                  }
+                };
+                const nextAction = getNextAction();
+
+                return (
+                  <>
+                    {relatedRect && (
+                      <div className="p-3 bg-tech-blue/10 border border-tech-blue/30 rounded-md">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs text-tech-blue font-medium flex items-center gap-1">
+                            <Hash size={12} />
+                            关联整改工单
+                          </span>
+                          <span className="text-xs font-mono text-tech-blue bg-tech-blue/20 px-2 py-0.5 rounded">
+                            ZG{relatedRect.id.padStart(4, '0')}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <span className="text-slate-400">当前责任人: </span>
+                            <span className="text-white">{currentResponsible}</span>
                           </div>
-                        ))}
+                          <div>
+                            <span className="text-slate-400">下一步: </span>
+                            <span className={nextAction.color}>{nextAction.text}</span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">{nextAction.action}</p>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs text-slate-400 block mb-1">
+                          巡检任务
+                        </label>
+                        <p className="text-white text-sm">{showAbnormalDetail.inspection.taskName}</p>
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-400 block mb-1">
+                          整改状态
+                        </label>
+                        {renderRectificationStatusBadge(showAbnormalDetail.abnormal.status)}
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-400 block mb-1">
+                          检查点
+                        </label>
+                        <p className="text-white text-sm">{showAbnormalDetail.abnormal.checkpointName}</p>
+                        <p className="text-xs text-slate-400">{showAbnormalDetail.abnormal.checkpointCode}</p>
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-400 block mb-1">
+                          位置
+                        </label>
+                        <p className="text-white text-sm">{showAbnormalDetail.abnormal.location}</p>
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-400 block mb-1">
+                          上报人
+                        </label>
+                        <p className="text-white text-sm">{showAbnormalDetail.abnormal.reporter}</p>
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-400 block mb-1">
+                          上报时间
+                        </label>
+                        <p className="text-white text-sm font-mono text-xs">
+                          {showAbnormalDetail.abnormal.reportTime}
+                        </p>
                       </div>
                     </div>
-                  );
-                }
-                return null;
+                    <div>
+                      <label className="text-xs text-slate-400 block mb-1">
+                        异常描述
+                      </label>
+                      <p className="text-white text-sm p-3 bg-navy-900/50 border border-navy-600/50 rounded-md">
+                        {showAbnormalDetail.abnormal.description}
+                      </p>
+                    </div>
+                    {relatedRect && relatedRect.timeline.length > 0 && (
+                      <div>
+                        <label className="text-xs text-slate-400 block mb-2 flex items-center gap-1">
+                          <History size={12} />
+                          处置时间线
+                        </label>
+                        <div className="relative pl-5">
+                          {relatedRect.timeline.map((tl, i) => {
+                            const dotColor =
+                              tl.action === 'report' ? 'bg-red-500'
+                                : tl.action === 'start' || tl.action === 'rework' ? 'bg-blue-500'
+                                : tl.action === 'submit_review' ? 'bg-purple-500'
+                                : tl.action === 'review_pass' ? 'bg-green-500'
+                                : tl.action === 'review_reject' ? 'bg-orange-500'
+                                : 'bg-yellow-500';
+                            return (
+                              <div key={tl.id} className="relative pb-4 last:pb-0">
+                                {i < relatedRect.timeline.length - 1 && (
+                                  <div className="absolute left-[-14px] top-4 w-0.5 h-full bg-navy-600" />
+                                )}
+                                <div className={`absolute left-[-18px] top-0 w-3 h-3 rounded-full border-2 border-navy-800 ${dotColor}`} />
+                                <div className="p-3 bg-navy-900/50 border border-navy-600/50 rounded-md">
+                                  <div className="flex items-center justify-between mb-1">
+                                    {renderTimelineAction(tl.action)}
+                                    <span className="text-xs text-slate-500 font-mono">{tl.time}</span>
+                                  </div>
+                                  <p className="text-xs text-slate-400">操作人: {tl.operator}</p>
+                                  {tl.note && (
+                                    <p className="text-xs text-slate-300 mt-1">{tl.note}</p>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
               })()}
             </div>
             <div className="px-6 py-4 border-t border-navy-600 flex justify-end gap-3">
