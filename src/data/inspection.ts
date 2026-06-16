@@ -1,5 +1,39 @@
 import { InspectionRecord, CheckPoint, Personnel } from '@/types';
 
+const generateCheckPoints = (): CheckPoint[] => {
+  const cps: CheckPoint[] = [];
+  const sections = ['1', '2', '3', '4', '5', '6'];
+  const types: Array<'environment' | 'equipment' | 'safety'> = ['environment', 'equipment', 'safety'];
+  
+  sections.forEach((sectionId) => {
+    for (let i = 1; i <= 10; i++) {
+      const idx = (parseInt(sectionId) - 1) * 10 + i;
+      const type = types[(i - 1) % 3];
+      const typeNames = {
+        environment: '环境监测点',
+        equipment: '设备检查点',
+        safety: '安全检查点'
+      };
+      const locations = [
+        '入口井', 'K0+500', 'K1+000', 'K1+500', 'K2+000',
+        'K2+500', 'K3+000', 'K3+500', 'K4+000', '出口井'
+      ];
+      cps.push({
+        id: String(idx),
+        name: `${typeNames[type]}${i}`,
+        code: `CP-${String(idx).padStart(3, '0')}`,
+        sectionId,
+        location: locations[i - 1],
+        type,
+        status: Math.random() > 0.9 ? 'abnormal' : 'normal'
+      });
+    }
+  });
+  return cps;
+};
+
+export const checkPoints: CheckPoint[] = generateCheckPoints();
+
 export const inspectionRecords: InspectionRecord[] = [
   {
     id: '1',
@@ -9,8 +43,8 @@ export const inspectionRecords: InspectionRecord[] = [
     startTime: '2026-06-17 08:00:00',
     endTime: '2026-06-17 10:30:00',
     status: 'completed',
-    checkpoints: 28,
-    completedCheckpoints: 28,
+    checkpoints: 10,
+    completedCheckpoints: 10,
     abnormalities: []
   },
   {
@@ -21,9 +55,21 @@ export const inspectionRecords: InspectionRecord[] = [
     startTime: '2026-06-17 09:00:00',
     endTime: '2026-06-17 11:15:00',
     status: 'completed',
-    checkpoints: 22,
-    completedCheckpoints: 22,
-    abnormalities: ['3号接头温度偏高']
+    checkpoints: 10,
+    completedCheckpoints: 10,
+    abnormalities: [
+      {
+        id: 'abn-1',
+        checkpointId: '15',
+        checkpointName: '设备检查点5',
+        checkpointCode: 'CP-015',
+        description: '3号接头温度偏高',
+        location: 'K2+000',
+        reporter: '巡检机器人2号',
+        reportTime: '2026-06-17 10:15:00',
+        status: 'resolved'
+      }
+    ]
   },
   {
     id: '3',
@@ -32,44 +78,56 @@ export const inspectionRecords: InspectionRecord[] = [
     sectionIds: ['4'],
     startTime: '2026-06-17 10:00:00',
     status: 'in_progress',
-    checkpoints: 45,
-    completedCheckpoints: 28,
+    checkpoints: 10,
+    completedCheckpoints: 6,
     abnormalities: []
   },
   {
     id: '4',
     type: 'manual',
     taskName: '滨江路燃气管廊人工巡检',
-    inspector: '张工',
+    inspector: '张建国',
     sectionIds: ['3'],
     startTime: '2026-06-17 07:30:00',
     endTime: '2026-06-17 09:45:00',
-    status: 'completed',
-    checkpoints: 18,
-    completedCheckpoints: 18,
-    abnormalities: ['阀门A-12有轻微泄漏']
+    status: 'abnormal',
+    checkpoints: 10,
+    completedCheckpoints: 10,
+    abnormalities: [
+      {
+        id: 'abn-2',
+        checkpointId: '27',
+        checkpointName: '安全检查点7',
+        checkpointCode: 'CP-027',
+        description: '阀门A-12有轻微泄漏',
+        location: 'K3+000',
+        reporter: '张建国',
+        reportTime: '2026-06-17 08:50:00',
+        status: 'pending'
+      }
+    ]
   },
   {
     id: '5',
     type: 'manual',
     taskName: '工业园区给水管廊巡检',
-    inspector: '李工',
+    inspector: '李明辉',
     sectionIds: ['5'],
     startTime: '2026-06-17 08:30:00',
     status: 'in_progress',
-    checkpoints: 15,
-    completedCheckpoints: 8,
+    checkpoints: 10,
+    completedCheckpoints: 5,
     abnormalities: []
   },
   {
     id: '6',
     type: 'manual',
     taskName: '老城区改造管廊安全检查',
-    inspector: '王工',
+    inspector: '王志强',
     sectionIds: ['6'],
     startTime: '2026-06-17 09:30:00',
     status: 'pending',
-    checkpoints: 12,
+    checkpoints: 10,
     completedCheckpoints: 0,
     abnormalities: []
   },
@@ -81,21 +139,10 @@ export const inspectionRecords: InspectionRecord[] = [
     startTime: '2026-06-16 22:00:00',
     endTime: '2026-06-17 01:30:00',
     status: 'completed',
-    checkpoints: 56,
-    completedCheckpoints: 56,
+    checkpoints: 20,
+    completedCheckpoints: 20,
     abnormalities: []
   }
-];
-
-export const checkPoints: CheckPoint[] = [
-  { id: '1', name: '入口环境监测点', code: 'CP-001', sectionId: '1', location: '1号入口井', type: 'environment', status: 'normal' },
-  { id: '2', name: '中段环境监测点', code: 'CP-002', sectionId: '1', location: 'K1+500', type: 'environment', status: 'normal' },
-  { id: '3', name: '末端环境监测点', code: 'CP-003', sectionId: '1', location: 'K3+200', type: 'environment', status: 'normal' },
-  { id: '4', name: '1号变电站', code: 'CP-004', sectionId: '1', location: 'K0+800', type: 'equipment', status: 'normal' },
-  { id: '5', name: '2号变电站', code: 'CP-005', sectionId: '1', location: 'K2+200', type: 'equipment', status: 'abnormal' },
-  { id: '6', name: '消防泵房', code: 'CP-006', sectionId: '1', location: 'K1+200', type: 'safety', status: 'normal' },
-  { id: '7', name: '通风机房1', code: 'CP-007', sectionId: '1', location: 'K0+500', type: 'equipment', status: 'normal' },
-  { id: '8', name: '通风机房2', code: 'CP-008', sectionId: '1', location: 'K2+800', type: 'equipment', status: 'normal' },
 ];
 
 export const inspectors: Personnel[] = [

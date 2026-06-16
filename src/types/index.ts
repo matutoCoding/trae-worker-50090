@@ -37,11 +37,27 @@ export interface Pipeline {
   length: number;
   owner: string;
   inDate: string;
-  status: 'normal' | 'maintenance' | 'decommissioned' | 'pending';
+  status: 'normal' | 'maintenance' | 'decommissioned' | 'pending' | 'approved' | 'rejected';
+  approvalStatus: 'pending' | 'approved' | 'rejected';
+  approver?: string;
+  approvalTime?: string;
+  approvalNote?: string;
   sectionIds: string[];
   voltage?: string;
   pressure?: string;
   material?: string;
+}
+
+export interface AbnormalDetail {
+  id: string;
+  checkpointId: string;
+  checkpointName: string;
+  checkpointCode: string;
+  description: string;
+  location: string;
+  reporter: string;
+  reportTime: string;
+  status: 'pending' | 'processing' | 'resolved';
 }
 
 export interface InspectionRecord {
@@ -53,9 +69,18 @@ export interface InspectionRecord {
   startTime: string;
   endTime?: string;
   status: 'pending' | 'in_progress' | 'completed' | 'abnormal';
-  abnormalities?: string[];
+  abnormalities?: AbnormalDetail[];
   checkpoints?: number;
   completedCheckpoints?: number;
+}
+
+export interface AlarmProcessRecord {
+  id: string;
+  alarmId: string;
+  handler: string;
+  handleTime: string;
+  handleNote: string;
+  handleResult: 'processing' | 'resolved' | 'transferred';
 }
 
 export interface AlarmRecord {
@@ -68,6 +93,7 @@ export interface AlarmRecord {
   status: 'unhandled' | 'processing' | 'resolved';
   handler?: string;
   resolvedTime?: string;
+  processRecords?: AlarmProcessRecord[];
 }
 
 export interface TenantUnit {
@@ -151,4 +177,21 @@ export interface Personnel {
   status: 'on_duty' | 'off_duty' | 'on_leave' | 'in_tunnel';
   lastLocation?: string;
   lastUpdate?: string;
+}
+
+export interface RectificationItem {
+  id: string;
+  inspectionId: string;
+  inspectionName: string;
+  abnormalId: string;
+  abnormalDescription: string;
+  checkpointName: string;
+  checkpointCode: string;
+  location: string;
+  reporter: string;
+  reportTime: string;
+  status: 'pending' | 'processing' | 'resolved';
+  handler?: string;
+  handleNote?: string;
+  handleTime?: string;
 }

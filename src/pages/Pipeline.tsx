@@ -14,6 +14,10 @@ import {
   FileCheck,
   X,
   Save,
+  XCircle,
+  CheckCircle2,
+  Clock,
+  User,
 } from 'lucide-react';
 import SectionCard from '@/components/cards/SectionCard';
 import StatCard from '@/components/cards/StatCard';
@@ -26,12 +30,17 @@ export default function PipelinePage() {
   const pipelines = useAppStore((s) => s.pipelines);
   const addPipeline = useAppStore((s) => s.addPipeline);
   const deletePipeline = useAppStore((s) => s.deletePipeline);
-  
-  const [activeTab, setActiveTab] = useState<string>('all');
+  const approvePipeline = useAppStore((s) => s.approvePipeline);
+  const rejectPipeline = useAppStore((s) => s.rejectPipeline);
+
+  const [activeTab, setActiveTab] = useState<string>('approved');
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [selectedPipeline, setSelectedPipeline] = useState<Pipeline | null>(null);
-  
+  const [showApprovalModal, setShowApprovalModal] = useState<Pipeline | null>(null);
+  const [approvalNote, setApprovalNote] = useState('');
+  const [approvalType, setApprovalType] = useState<'approve' | 'reject'>('approve');
+
   const [formData, setFormData] = useState({
     name: '',
     type: 'power' as 'power' | 'gas' | 'water' | 'communication',
@@ -47,31 +56,53 @@ export default function PipelinePage() {
   });
 
   const pipelineStats = useMemo(() => {
-    const total = pipelines.length;
-    const power = pipelines.filter(p => p.type === 'power').length;
-    const gas = pipelines.filter(p => p.type === 'gas').length;
-    const water = pipelines.filter(p => p.type === 'water').length;
-    const communication = pipelines.filter(p => p.type === 'communication').length;
-    const totalLength = pipelines.reduce((sum, p) => sum + p.length, 0);
-    return { total, power, gas, water, communication, totalLength };
+    const approved = pipelines.filter((p) => p.approvalStatus === 'approved');
+    const pending = pipelines.filter((p) => p.approvalStatus === 'pending');
+    const power = approved.filter((p) => p.type === 'power').length;
+    const gas = approved.filter((p) => p.type === 'gas').length;
+    const water = approved.filter((p) => p.type === 'water').length;
+    const communication = approved.filter((p) => p.type === 'communication').length;
+    const totalLength = approved.reduce((sum, p) => sum + p.length, 0);
+    return {
+      total: approved.length,
+      power,
+      gas,
+      water,
+      communication,
+      totalLength,
+      pending: pending.length,
+    };
   }, [pipelines]);
 
   const tabs = [
-    { key: 'all', label: '全部管线', icon: Cable },
+    { key: 'approved', label: '已入廊管线', icon: Cable },
+    { key: 'pending', label: '待审批登记', icon: Clock, badge: pipelineStats.pending },
     { key: 'power', label: '电力管线', icon: Zap },
     { key: 'gas', label: '燃气管线', icon: Flame },
     { key: 'water', label: '给水管线', icon: Droplets },
     { key: 'communication', label: '通信管线', icon: Wifi },
   ];
 
-  const filteredPipelines = pipelines.filter((p) => {
-    const matchesTab = activeTab === 'all' || p.type === activeTab;
-    const matchesSearch =
-      p.name.includes(searchTerm) ||
-      p.code.includes(searchTerm) ||
-      p.owner.includes(searchTerm);
-    return matchesTab && matchesSearch;
-  });
+  const getFilteredPipelines = () => {
+    let list: Pipeline[] = [];
+    if (activeTab === 'approved') {
+      list = pipelines.filter((p) => p.approvalStatus === 'approved');
+    } else if (activeTab === 'pending') {
+      list = pipelines.filter((p) => p.approvalStatus === 'pending' || p.approvalStatus === 'rejected');
+    } else {
+      list = pipelines.filter((p) => p.type === activeTab && p.approvalStatus === 'approved');
+    }
+
+    return list.filter((p) => {
+      const matchesSearch =
+        p.name.includes(searchTerm) ||
+        p.code.includes(searchTerm) ||
+        p.owner.includes(searchTerm);
+      return matchesSearch;
+    });
+  };
+
+  const filteredPipelines = getFilteredPipelines();
 
   const getTypeIcon = (type: string) => {
     switch (type) {
@@ -93,6 +124,24 @@ export default function PipelinePage() {
     gas: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/30',
     water: 'bg-green-500/10 text-green-500 border-green-500/30',
     communication: 'bg-purple-500/10 text-purple-500 border-purple-500/30',
+  };
+
+  const renderApprovalBadge = (status: string) => {
+    const colors: Record<string, string> = {
+      pending: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/30',
+      approved: 'bg-green-500/10 text-green-500 border-green-500/30',
+      rejected: 'bg-red-500/10 text-red-500 border-red-500/30',
+    };
+    const labels: Record<string, string> = {
+      pending: '待审批',
+      approved: '已通过',
+      rejected: '已驳回',
+    };
+    return (
+      <span className={`inline-flex items-center px-2 py-0.5 text-xs rounded border ${colors[status] || ''}`}>
+        {labels[status] || status}
+      </span>
+    );
   };
 
   const resetForm = () => {
@@ -124,7 +173,7 @@ export default function PipelinePage() {
     }
     addPipeline(formData);
     setShowModal(false);
-    setActiveTab(formData.type);
+    setActiveTab('pending');
     resetForm();
   };
 
@@ -134,9 +183,30 @@ export default function PipelinePage() {
     }
   };
 
+  const handleOpenApproval = (pipeline: Pipeline, type: 'approve' | 'reject') => {
+    setShowApprovalModal(pipeline);
+    setApprovalType(type);
+    setApprovalNote('');
+  };
+
+  const handleSubmitApproval = () => {
+    if (!showApprovalModal) return;
+    if (approvalType === 'reject' && !approvalNote.trim()) {
+      alert('请填写驳回原因');
+      return;
+    }
+    if (approvalType === 'approve') {
+      approvePipeline(showApprovalModal.id, '当前审批人', approvalNote.trim() || undefined);
+    } else {
+      rejectPipeline(showApprovalModal.id, '当前审批人', approvalNote.trim());
+    }
+    setShowApprovalModal(null);
+    setApprovalNote('');
+  };
+
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard
           title="管线总数"
           value={pipelineStats.total}
@@ -165,6 +235,13 @@ export default function PipelinePage() {
           suffix="公里"
           color="green"
         />
+        <StatCard
+          title="待审批"
+          value={pipelineStats.pending}
+          icon={Clock}
+          suffix="条"
+          color="yellow"
+        />
       </div>
 
       <SectionCard
@@ -188,7 +265,7 @@ export default function PipelinePage() {
                 <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key)}
-                  className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors whitespace-nowrap ${
+                  className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors whitespace-nowrap relative ${
                     activeTab === tab.key
                       ? 'text-tech-blue border-b-2 border-tech-blue -mb-px'
                       : 'text-slate-400 hover:text-white'
@@ -196,6 +273,11 @@ export default function PipelinePage() {
                 >
                   <Icon size={16} />
                   {tab.label}
+                  {tab.badge !== undefined && tab.badge > 0 && (
+                    <span className="absolute -top-0.5 -right-1 w-4 h-4 bg-red-500 rounded-full text-white text-xs flex items-center justify-center">
+                      {tab.badge}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -248,8 +330,13 @@ export default function PipelinePage() {
                   入廊日期
                 </th>
                 <th className="text-left py-3 px-4 text-slate-400 font-medium">
-                  状态
+                  审批状态
                 </th>
+                {activeTab === 'pending' && (
+                  <th className="text-left py-3 px-4 text-slate-400 font-medium">
+                    审批
+                  </th>
+                )}
                 <th className="text-left py-3 px-4 text-slate-400 font-medium">
                   操作
                 </th>
@@ -296,8 +383,41 @@ export default function PipelinePage() {
                     {pipeline.inDate}
                   </td>
                   <td className="py-3 px-4">
-                    <StatusBadge status={pipeline.status} size="sm" />
+                    {renderApprovalBadge(pipeline.approvalStatus)}
                   </td>
+                  {activeTab === 'pending' && (
+                    <td className="py-3 px-4">
+                      {pipeline.approvalStatus === 'pending' && (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleOpenApproval(pipeline, 'approve')}
+                            className="flex items-center gap-1 px-2 py-1 text-xs text-green-500 hover:bg-green-500/10 rounded transition-colors"
+                          >
+                            <CheckCircle2 size={12} />
+                            通过
+                          </button>
+                          <button
+                            onClick={() => handleOpenApproval(pipeline, 'reject')}
+                            className="flex items-center gap-1 px-2 py-1 text-xs text-red-500 hover:bg-red-500/10 rounded transition-colors"
+                          >
+                            <XCircle size={12} />
+                            驳回
+                          </button>
+                        </div>
+                      )}
+                      {pipeline.approvalStatus === 'rejected' && (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleOpenApproval(pipeline, 'approve')}
+                            className="flex items-center gap-1 px-2 py-1 text-xs text-green-500 hover:bg-green-500/10 rounded transition-colors"
+                          >
+                            <CheckCircle2 size={12} />
+                            重新审批
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  )}
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-1">
                       <button
@@ -310,27 +430,34 @@ export default function PipelinePage() {
                       >
                         <Eye size={14} />
                       </button>
-                      <button
-                        className="p-1.5 text-slate-400 hover:text-yellow-500 hover:bg-navy-600/50 rounded transition-colors"
-                        title="编辑"
-                      >
-                        <Edit size={14} />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(pipeline.id)}
-                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-navy-600/50 rounded transition-colors"
-                        title="删除"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      {pipeline.approvalStatus !== 'approved' && (
+                        <>
+                          <button
+                            className="p-1.5 text-slate-400 hover:text-yellow-500 hover:bg-navy-600/50 rounded transition-colors"
+                            title="编辑"
+                          >
+                            <Edit size={14} />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(pipeline.id)}
+                            className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-navy-600/50 rounded transition-colors"
+                            title="删除"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
               ))}
               {filteredPipelines.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="py-8 text-center text-slate-400">
-                    暂无管线数据
+                  <td
+                    colSpan={activeTab === 'pending' ? 10 : 9}
+                    className="py-8 text-center text-slate-400"
+                  >
+                    {activeTab === 'pending' ? '暂无待审批的管线登记' : '暂无管线数据'}
                   </td>
                 </tr>
               )}
@@ -427,7 +554,7 @@ export default function PipelinePage() {
                     </div>
                     <div>
                       <label className="text-xs text-slate-400 block mb-1">
-                        状态
+                        运行状态
                       </label>
                       <StatusBadge status={selectedPipeline.status} />
                     </div>
@@ -461,11 +588,19 @@ export default function PipelinePage() {
                       审批状态
                     </label>
                     <div className="flex items-center gap-2">
-                      <FileCheck size={16} className="text-green-500" />
-                      <span className="text-green-500">
-                        {selectedPipeline.status === 'pending' ? '待审批' : '已通过审批'}
-                      </span>
+                      <FileCheck size={16} className={selectedPipeline.approvalStatus === 'approved' ? 'text-green-500' : selectedPipeline.approvalStatus === 'rejected' ? 'text-red-500' : 'text-yellow-500'} />
+                      {renderApprovalBadge(selectedPipeline.approvalStatus)}
                     </div>
+                    {selectedPipeline.approver && (
+                      <p className="text-xs text-slate-400 mt-2">
+                        审批人: {selectedPipeline.approver} · {selectedPipeline.approvalTime}
+                      </p>
+                    )}
+                    {selectedPipeline.approvalNote && (
+                      <p className="text-xs text-slate-500 mt-1 p-2 bg-navy-900/50 rounded">
+                        审批意见: {selectedPipeline.approvalNote}
+                      </p>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -692,6 +827,115 @@ export default function PipelinePage() {
                   提交登记
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showApprovalModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-navy-800 border border-navy-600 rounded-lg w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-navy-600">
+              <h3 className="text-lg font-medium text-white flex items-center gap-2">
+                {approvalType === 'approve' ? (
+                  <><CheckCircle2 size={18} className="text-green-500" /> 审批通过</>
+                ) : (
+                  <><XCircle size={18} className="text-red-500" /> 审批驳回</>
+                )}
+              </h3>
+              <button
+                onClick={() => {
+                  setShowApprovalModal(null);
+                  setApprovalNote('');
+                }}
+                className="text-slate-400 hover:text-white"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              <div className="p-3 bg-navy-900/50 border border-navy-600/50 rounded-md">
+                <p className="text-white font-medium">{showApprovalModal.name}</p>
+                <p className="text-xs text-slate-400 mt-1">
+                  {getTypeText(showApprovalModal.type)} · {showApprovalModal.code} · {showApprovalModal.owner}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">
+                    管径
+                  </label>
+                  <p className="text-white text-sm">{showApprovalModal.diameter}mm</p>
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">
+                    长度
+                  </label>
+                  <p className="text-white text-sm">{formatLength(showApprovalModal.length)}</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm text-slate-300 block mb-1">
+                  审批人 <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <User
+                    size={14}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+                  <input
+                    type="text"
+                    defaultValue="当前审批人"
+                    className="w-full h-9 pl-8 pr-3 bg-navy-900 border border-navy-600 rounded-md text-sm text-white focus:outline-none focus:border-tech-blue/50"
+                    readOnly
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm text-slate-300 block mb-1">
+                  {approvalType === 'reject' ? (
+                    <>驳回原因 <span className="text-red-500">*</span></>
+                  ) : (
+                    <>审批意见</>
+                  )}
+                </label>
+                <textarea
+                  rows={4}
+                  value={approvalNote}
+                  onChange={(e) => setApprovalNote(e.target.value)}
+                  className="w-full px-3 py-2 bg-navy-900 border border-navy-600 rounded-md text-sm text-white focus:outline-none focus:border-tech-blue/50 resize-none"
+                  placeholder={approvalType === 'reject' ? '请填写驳回原因...' : '请输入审批意见（选填）...'}
+                />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-navy-600 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowApprovalModal(null);
+                  setApprovalNote('');
+                }}
+                className="px-4 py-2 bg-navy-700/50 border border-navy-600 rounded-md text-sm text-slate-300 hover:bg-navy-700 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSubmitApproval}
+                disabled={approvalType === 'reject' && !approvalNote.trim()}
+                className={`px-4 py-2 text-white text-sm rounded-md transition-colors flex items-center gap-1 ${
+                  approvalType === 'approve'
+                    ? 'bg-green-600 hover:bg-green-700'
+                    : 'bg-red-600 hover:bg-red-700'
+                } disabled:bg-navy-700 disabled:text-slate-500`}
+              >
+                {approvalType === 'approve' ? (
+                  <><CheckCircle2 size={14} /> 确认通过</>
+                ) : (
+                  <><XCircle size={14} /> 确认驳回</>
+                )}
+              </button>
             </div>
           </div>
         </div>

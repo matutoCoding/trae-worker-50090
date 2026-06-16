@@ -11,6 +11,11 @@ import {
   MapPin,
   Filter,
   RefreshCw,
+  X,
+  User,
+  FileText,
+  Send,
+  History,
 } from 'lucide-react';
 import {
   LineChart,
@@ -36,9 +41,16 @@ export default function Safety() {
   const [activeTab, setActiveTab] = useState<'gas' | 'fire'>('gas');
   const [filterLevel, setFilterLevel] = useState<string>('all');
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [showProcessModal, setShowProcessModal] = useState<AlarmRecord | null>(null);
+  const [showHistoryModal, setShowHistoryModal] = useState<AlarmRecord | null>(null);
+  const [processForm, setProcessForm] = useState({
+    handler: '',
+    handleNote: '',
+    handleResult: 'processing' as 'processing' | 'resolved',
+  });
 
   const alarms = useAppStore((s) => s.alarms);
-  const updateAlarmStatus = useAppStore((s) => s.updateAlarmStatus);
+  const processAlarm = useAppStore((s) => s.processAlarm);
 
   const data = environmentData[selectedSection] || [];
 
@@ -98,21 +110,57 @@ export default function Safety() {
     }
   };
 
-  const handleProcess = (alarm: AlarmRecord) => {
-    setProcessingId(alarm.id);
+  const getLevelText = (level: string) => {
+    switch (level) {
+      case 'critical':
+        return '严重';
+      case 'warning':
+        return '警告';
+      default:
+        return '提示';
+    }
+  };
+
+  const renderLevelBadge = (level: string) => {
+    const colors: Record<string, string> = {
+      critical: 'bg-red-500/10 text-red-500 border-red-500/30',
+      warning: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/30',
+      info: 'bg-blue-500/10 text-blue-500 border-blue-500/30',
+    };
+    return (
+      <span className={`inline-flex items-center px-2 py-0.5 text-xs rounded border ${colors[level] || ''}`}>
+        {getLevelText(level)}
+      </span>
+    );
+  };
+
+  const handleOpenProcess = (alarm: AlarmRecord) => {
+    setShowProcessModal(alarm);
+    setProcessForm({
+      handler: alarm.handler || '',
+      handleNote: '',
+      handleResult: alarm.status === 'processing' ? 'resolved' : 'processing',
+    });
+  };
+
+  const handleSubmitProcess = () => {
+    if (!showProcessModal || !processForm.handler.trim() || !processForm.handleNote.trim()) return;
+    setProcessingId(showProcessModal.id);
     setTimeout(() => {
-      if (alarm.status === 'unhandled') {
-        updateAlarmStatus(alarm.id, 'processing', '当前处理人');
-      } else if (alarm.status === 'processing') {
-        updateAlarmStatus(alarm.id, 'resolved', '当前处理人');
-      }
+      processAlarm(showProcessModal.id, {
+        handler: processForm.handler.trim(),
+        handleNote: processForm.handleNote.trim(),
+        handleResult: processForm.handleResult,
+      });
       setProcessingId(null);
-    }, 400);
+      setShowProcessModal(null);
+      setProcessForm({ handler: '', handleNote: '', handleResult: 'processing' });
+    }, 300);
   };
 
   const getProcessButtonText = (status: AlarmRecord['status']) => {
     if (status === 'unhandled') return '立即处理';
-    if (status === 'processing') return '标记已解决';
+    if (status === 'processing') return '继续处理';
     return '已解决';
   };
 
@@ -338,9 +386,21 @@ export default function Safety() {
                             {alarm.description}
                           </span>
                         </div>
-                        <StatusBadge status={alarm.status} size="sm" />
+                        <div className="flex items-center gap-1">
+                          {alarm.processRecords && alarm.processRecords.length > 0 && (
+                            <button
+                              onClick={() => setShowHistoryModal(alarm)}
+                              className="p-1 text-slate-400 hover:text-white transition-colors"
+                              title="查看处理记录"
+                            >
+                              <History size={12} />
+                            </button>
+                          )}
+                          <StatusBadge status={alarm.status} size="sm" />
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3 text-xs text-slate-400 mt-2">
+                      <div className="flex items-center gap-3 text-xs text-slate-400 mt-1">
+                        {renderLevelBadge(alarm.level)}
                         <span className="flex items-center gap-1">
                           <MapPin size={10} />
                           {alarm.location}
@@ -350,15 +410,38 @@ export default function Safety() {
                           {formatDateTime(alarm.timestamp).split(' ')[1]}
                         </span>
                       </div>
+                      {alarm.handler && (
+                        <div className="text-xs text-slate-500 mt-1">
+                          处理人: {alarm.handler}
+                        </div>
+                      )}
                       {alarm.status !== 'resolved' && (
+                        <div className="flex gap-2 mt-2">
+                          <button
+                            onClick={() => handleOpenProcess(alarm)}
+                            disabled={processingId === alarm.id}
+                            className="flex-1 py-1.5 bg-tech-blue/20 hover:bg-tech-blue/30 disabled:bg-navy-700 disabled:text-slate-500 rounded text-xs text-tech-blue transition-colors"
+                          >
+                            {processingId === alarm.id
+                              ? '处理中...'
+                              : getProcessButtonText(alarm.status)}
+                          </button>
+                          {alarm.processRecords && alarm.processRecords.length > 0 && (
+                            <button
+                              onClick={() => setShowHistoryModal(alarm)}
+                              className="px-3 py-1.5 bg-navy-700/50 hover:bg-navy-700 rounded text-xs text-slate-300 transition-colors"
+                            >
+                              记录
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {alarm.status === 'resolved' && alarm.processRecords && alarm.processRecords.length > 0 && (
                         <button
-                          onClick={() => handleProcess(alarm)}
-                          disabled={processingId === alarm.id}
-                          className="w-full mt-2 py-1.5 bg-tech-blue/20 hover:bg-tech-blue/30 disabled:bg-navy-700 disabled:text-slate-500 rounded text-xs text-tech-blue transition-colors"
+                          onClick={() => setShowHistoryModal(alarm)}
+                          className="w-full mt-2 py-1.5 bg-navy-700/30 hover:bg-navy-700/50 rounded text-xs text-slate-400 transition-colors"
                         >
-                          {processingId === alarm.id
-                            ? '处理中...'
-                            : getProcessButtonText(alarm.status)}
+                          查看处理记录
                         </button>
                       )}
                     </div>
@@ -488,7 +571,7 @@ export default function Safety() {
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2">
                           {getAlarmIcon(alarm.type)}
-                          <div>
+                          <div className="flex-1">
                             <p className="text-sm font-medium text-white">
                               {alarm.description}
                             </p>
@@ -497,22 +580,57 @@ export default function Safety() {
                             </p>
                           </div>
                         </div>
+                        {alarm.processRecords && alarm.processRecords.length > 0 && (
+                          <button
+                            onClick={() => setShowHistoryModal(alarm)}
+                            className="p-1 text-slate-400 hover:text-white transition-colors flex-shrink-0"
+                            title="查看处理记录"
+                          >
+                            <History size={12} />
+                          </button>
+                        )}
                       </div>
                       <div className="flex items-center justify-between mt-2">
-                        <StatusBadge status={alarm.status} size="sm" />
+                        <div className="flex items-center gap-2">
+                          {renderLevelBadge(alarm.level)}
+                          <StatusBadge status={alarm.status} size="sm" />
+                        </div>
                         <span className="text-xs text-slate-500">
                           {formatDateTime(alarm.timestamp).split(' ')[1]}
                         </span>
                       </div>
+                      {alarm.handler && (
+                        <div className="text-xs text-slate-500 mt-1">
+                          处理人: {alarm.handler}
+                        </div>
+                      )}
                       {alarm.status !== 'resolved' && (
+                        <div className="flex gap-2 mt-2">
+                          <button
+                            onClick={() => handleOpenProcess(alarm)}
+                            disabled={processingId === alarm.id}
+                            className="flex-1 py-1.5 bg-tech-blue/20 hover:bg-tech-blue/30 disabled:bg-navy-700 disabled:text-slate-500 rounded text-xs text-tech-blue transition-colors"
+                          >
+                            {processingId === alarm.id
+                              ? '处理中...'
+                              : getProcessButtonText(alarm.status)}
+                          </button>
+                          {alarm.processRecords && alarm.processRecords.length > 0 && (
+                            <button
+                              onClick={() => setShowHistoryModal(alarm)}
+                              className="px-3 py-1.5 bg-navy-700/50 hover:bg-navy-700 rounded text-xs text-slate-300 transition-colors"
+                            >
+                              记录
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {alarm.status === 'resolved' && alarm.processRecords && alarm.processRecords.length > 0 && (
                         <button
-                          onClick={() => handleProcess(alarm)}
-                          disabled={processingId === alarm.id}
-                          className="w-full mt-2 py-1.5 bg-tech-blue/20 hover:bg-tech-blue/30 disabled:bg-navy-700 disabled:text-slate-500 rounded text-xs text-tech-blue transition-colors"
+                          onClick={() => setShowHistoryModal(alarm)}
+                          className="w-full mt-2 py-1.5 bg-navy-700/30 hover:bg-navy-700/50 rounded text-xs text-slate-400 transition-colors"
                         >
-                          {processingId === alarm.id
-                            ? '处理中...'
-                            : getProcessButtonText(alarm.status)}
+                          查看处理记录
                         </button>
                       )}
                     </div>
@@ -520,6 +638,203 @@ export default function Safety() {
                 )}
               </div>
             </SectionCard>
+          </div>
+        </div>
+      )}
+
+      {showProcessModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-navy-800 border border-navy-600 rounded-lg w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-navy-600">
+              <h3 className="text-lg font-medium text-white flex items-center gap-2">
+                <ShieldAlert size={18} className="text-yellow-500" />
+                告警处置
+              </h3>
+              <button
+                onClick={() => {
+                  setShowProcessModal(null);
+                  setProcessForm({ handler: '', handleNote: '', handleResult: 'processing' });
+                }}
+                className="text-slate-400 hover:text-white"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              <div className="p-3 bg-navy-900/50 border border-navy-600/50 rounded-md">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    {getAlarmIcon(showProcessModal.type)}
+                    <span className="text-white font-medium">{showProcessModal.description}</span>
+                  </div>
+                  {renderLevelBadge(showProcessModal.level)}
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs mt-2">
+                  <div>
+                    <span className="text-slate-400">位置: </span>
+                    <span className="text-slate-300">{showProcessModal.location}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">告警时间: </span>
+                    <span className="text-slate-300">{formatDateTime(showProcessModal.timestamp)}</span>
+                  </div>
+                </div>
+                <div className="mt-2 pt-2 border-t border-navy-600/50">
+                  <StatusBadge status={showProcessModal.status} />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm text-slate-300 block mb-1">
+                  处置结果 <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={processForm.handleResult}
+                  onChange={(e) =>
+                    setProcessForm({
+                      ...processForm,
+                      handleResult: e.target.value as 'processing' | 'resolved',
+                    })
+                  }
+                  className="w-full h-9 px-3 bg-navy-900 border border-navy-600 rounded-md text-sm text-white focus:outline-none focus:border-tech-blue/50"
+                >
+                  <option value="processing">标记为处理中</option>
+                  <option value="resolved">标记为已解决</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-sm text-slate-300 block mb-1">
+                  处理人 <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <User
+                    size={14}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+                  <input
+                    type="text"
+                    value={processForm.handler}
+                    onChange={(e) =>
+                      setProcessForm({ ...processForm, handler: e.target.value })
+                    }
+                    className="w-full h-9 pl-8 pr-3 bg-navy-900 border border-navy-600 rounded-md text-sm text-white focus:outline-none focus:border-tech-blue/50"
+                    placeholder="请输入处理人姓名"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm text-slate-300 block mb-1">
+                  处理说明 <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  rows={4}
+                  value={processForm.handleNote}
+                  onChange={(e) =>
+                    setProcessForm({ ...processForm, handleNote: e.target.value })
+                  }
+                  className="w-full px-3 py-2 bg-navy-900 border border-navy-600 rounded-md text-sm text-white focus:outline-none focus:border-tech-blue/50 resize-none"
+                  placeholder="请详细描述处置措施和结果..."
+                />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-navy-600 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowProcessModal(null);
+                  setProcessForm({ handler: '', handleNote: '', handleResult: 'processing' });
+                }}
+                className="px-4 py-2 bg-navy-700/50 border border-navy-600 rounded-md text-sm text-slate-300 hover:bg-navy-700 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSubmitProcess}
+                disabled={!processForm.handler.trim() || !processForm.handleNote.trim()}
+                className="px-4 py-2 bg-tech-blue text-white text-sm rounded-md hover:bg-tech-blue/90 disabled:bg-navy-700 disabled:text-slate-500 transition-colors flex items-center gap-1"
+              >
+                <Send size={14} />
+                提交处置
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showHistoryModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-navy-800 border border-navy-600 rounded-lg w-full max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-navy-600">
+              <h3 className="text-lg font-medium text-white flex items-center gap-2">
+                <FileText size={18} className="text-tech-blue" />
+                处置记录
+              </h3>
+              <button
+                onClick={() => setShowHistoryModal(null)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="p-3 bg-navy-900/50 border border-navy-600/50 rounded-md mb-4">
+                <div className="flex items-center gap-2 mb-2">
+                  {getAlarmIcon(showHistoryModal.type)}
+                  <span className="text-white font-medium">{showHistoryModal.description}</span>
+                </div>
+                <div className="text-xs text-slate-400">
+                  {showHistoryModal.location} · {formatDateTime(showHistoryModal.timestamp)}
+                </div>
+              </div>
+
+              {(!showHistoryModal.processRecords || showHistoryModal.processRecords.length === 0) ? (
+                <div className="py-8 text-center text-slate-500">
+                  暂无处置记录
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {[...showHistoryModal.processRecords].reverse().map((record, idx) => (
+                    <div key={record.id} className="relative pl-6">
+                      {idx < (showHistoryModal.processRecords?.length || 0) - 1 && (
+                        <div className="absolute left-3 top-6 bottom-0 w-px bg-navy-600"></div>
+                      )}
+                      <div className="absolute left-0 top-1.5 w-6 h-6 rounded-full bg-tech-blue/20 border-2 border-tech-blue/50 flex items-center justify-center">
+                        <div className="w-2 h-2 rounded-full bg-tech-blue"></div>
+                      </div>
+                      <div className="bg-navy-900/50 border border-navy-600/50 rounded-md p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className={`inline-flex items-center px-2 py-0.5 text-xs rounded border ${
+                            record.handleResult === 'resolved'
+                              ? 'bg-green-500/10 text-green-500 border-green-500/30'
+                              : 'bg-blue-500/10 text-blue-500 border-blue-500/30'
+                          }`}>
+                            {record.handleResult === 'resolved' ? '已解决' : '处理中'}
+                          </span>
+                          <span className="text-xs text-slate-500 font-mono">
+                            {formatDateTime(record.handleTime)}
+                          </span>
+                        </div>
+                        <div className="text-xs text-slate-400 mb-1">
+                          处理人: <span className="text-slate-300">{record.handler}</span>
+                        </div>
+                        <div className="text-sm text-white p-2 bg-navy-800/60 rounded mt-2">
+                          {record.handleNote}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-4 border-t border-navy-600 flex justify-end">
+              <button
+                onClick={() => setShowHistoryModal(null)}
+                className="px-4 py-2 bg-navy-700/50 border border-navy-600 rounded-md text-sm text-slate-300 hover:bg-navy-700 transition-colors"
+              >
+                关闭
+              </button>
+            </div>
           </div>
         </div>
       )}

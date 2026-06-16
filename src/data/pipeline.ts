@@ -11,6 +11,9 @@ export const pipelines: Pipeline[] = [
     owner: '市供电公司',
     inDate: '2021-08-15',
     status: 'normal',
+    approvalStatus: 'approved',
+    approver: '系统管理员',
+    approvalTime: '2021-08-16 10:30:00',
     sectionIds: ['1', '2'],
     voltage: '220kV',
     material: 'XLPE绝缘电缆'
@@ -25,6 +28,9 @@ export const pipelines: Pipeline[] = [
     owner: '市供电公司',
     inDate: '2021-09-20',
     status: 'normal',
+    approvalStatus: 'approved',
+    approver: '系统管理员',
+    approvalTime: '2021-09-21 14:20:00',
     sectionIds: ['1', '4'],
     voltage: '110kV',
     material: 'XLPE绝缘电缆'
@@ -39,6 +45,9 @@ export const pipelines: Pipeline[] = [
     owner: '市供电公司',
     inDate: '2022-11-10',
     status: 'normal',
+    approvalStatus: 'approved',
+    approver: '系统管理员',
+    approvalTime: '2022-11-11 09:15:00',
     sectionIds: ['5'],
     voltage: '10kV',
     material: 'YJV电缆'
@@ -53,6 +62,9 @@ export const pipelines: Pipeline[] = [
     owner: '市燃气集团',
     inDate: '2020-12-01',
     status: 'normal',
+    approvalStatus: 'approved',
+    approver: '系统管理员',
+    approvalTime: '2020-12-02 11:00:00',
     sectionIds: ['3'],
     pressure: '1.6MPa',
     material: '钢制管道'
@@ -67,6 +79,9 @@ export const pipelines: Pipeline[] = [
     owner: '市燃气集团',
     inDate: '2021-05-18',
     status: 'maintenance',
+    approvalStatus: 'approved',
+    approver: '系统管理员',
+    approvalTime: '2021-05-19 15:30:00',
     sectionIds: ['1', '4'],
     pressure: '0.4MPa',
     material: 'PE管道'
@@ -81,6 +96,9 @@ export const pipelines: Pipeline[] = [
     owner: '市自来水公司',
     inDate: '2021-07-22',
     status: 'normal',
+    approvalStatus: 'approved',
+    approver: '系统管理员',
+    approvalTime: '2021-07-23 10:00:00',
     sectionIds: ['1', '4'],
     material: '球墨铸铁管'
   },
@@ -94,6 +112,9 @@ export const pipelines: Pipeline[] = [
     owner: '市自来水公司',
     inDate: '2022-10-05',
     status: 'normal',
+    approvalStatus: 'approved',
+    approver: '系统管理员',
+    approvalTime: '2022-10-06 14:00:00',
     sectionIds: ['5'],
     material: '钢管'
   },
@@ -107,6 +128,9 @@ export const pipelines: Pipeline[] = [
     owner: '电信公司',
     inDate: '2021-06-30',
     status: 'normal',
+    approvalStatus: 'approved',
+    approver: '系统管理员',
+    approvalTime: '2021-07-01 09:30:00',
     sectionIds: ['1', '2', '4'],
     material: 'GYTA光缆'
   },
@@ -120,6 +144,9 @@ export const pipelines: Pipeline[] = [
     owner: '移动公司',
     inDate: '2021-08-12',
     status: 'normal',
+    approvalStatus: 'approved',
+    approver: '系统管理员',
+    approvalTime: '2021-08-13 11:20:00',
     sectionIds: ['1', '3', '4'],
     material: 'GYTA光缆'
   },
@@ -133,6 +160,7 @@ export const pipelines: Pipeline[] = [
     owner: '市供电公司',
     inDate: '2023-03-15',
     status: 'pending',
+    approvalStatus: 'pending',
     sectionIds: ['6'],
     voltage: '10kV',
     material: 'YJV电缆'
