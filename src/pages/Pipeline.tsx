@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Cable,
   Zap,
@@ -18,15 +18,43 @@ import {
 import SectionCard from '@/components/cards/SectionCard';
 import StatCard from '@/components/cards/StatCard';
 import StatusBadge from '@/components/ui/StatusBadge';
-import { pipelines, pipelineStats } from '@/data/pipeline';
+import { useAppStore } from '@/store/useAppStore';
 import { formatLength, getTypeText } from '@/utils/format';
 import { Pipeline } from '@/types';
 
 export default function PipelinePage() {
+  const pipelines = useAppStore((s) => s.pipelines);
+  const addPipeline = useAppStore((s) => s.addPipeline);
+  const deletePipeline = useAppStore((s) => s.deletePipeline);
+  
   const [activeTab, setActiveTab] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [selectedPipeline, setSelectedPipeline] = useState<Pipeline | null>(null);
+  
+  const [formData, setFormData] = useState({
+    name: '',
+    type: 'power' as 'power' | 'gas' | 'water' | 'communication',
+    diameter: 0,
+    length: 0,
+    owner: '',
+    inDate: new Date().toISOString().split('T')[0],
+    voltage: '',
+    pressure: '',
+    material: '',
+    sectionIds: [] as string[],
+    note: '',
+  });
+
+  const pipelineStats = useMemo(() => {
+    const total = pipelines.length;
+    const power = pipelines.filter(p => p.type === 'power').length;
+    const gas = pipelines.filter(p => p.type === 'gas').length;
+    const water = pipelines.filter(p => p.type === 'water').length;
+    const communication = pipelines.filter(p => p.type === 'communication').length;
+    const totalLength = pipelines.reduce((sum, p) => sum + p.length, 0);
+    return { total, power, gas, water, communication, totalLength };
+  }, [pipelines]);
 
   const tabs = [
     { key: 'all', label: '全部管线', icon: Cable },
@@ -67,6 +95,45 @@ export default function PipelinePage() {
     communication: 'bg-purple-500/10 text-purple-500 border-purple-500/30',
   };
 
+  const resetForm = () => {
+    setFormData({
+      name: '',
+      type: 'power',
+      diameter: 0,
+      length: 0,
+      owner: '',
+      inDate: new Date().toISOString().split('T')[0],
+      voltage: '',
+      pressure: '',
+      material: '',
+      sectionIds: [],
+      note: '',
+    });
+  };
+
+  const handleOpenAdd = () => {
+    resetForm();
+    setSelectedPipeline(null);
+    setShowModal(true);
+  };
+
+  const handleSubmit = () => {
+    if (!formData.name.trim() || !formData.owner.trim()) {
+      alert('请填写管线名称和权属单位');
+      return;
+    }
+    addPipeline(formData);
+    setShowModal(false);
+    setActiveTab(formData.type);
+    resetForm();
+  };
+
+  const handleDelete = (id: string) => {
+    if (confirm('确定要删除这条管线记录吗？')) {
+      deletePipeline(id);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -105,7 +172,7 @@ export default function PipelinePage() {
         icon={Cable}
         action={
           <button
-            onClick={() => setShowModal(true)}
+            onClick={handleOpenAdd}
             className="flex items-center gap-1 px-3 py-1.5 bg-tech-blue text-white text-sm rounded-md hover:bg-tech-blue/90 transition-colors"
           >
             <Plus size={14} />
@@ -217,6 +284,7 @@ export default function PipelinePage() {
                   <td className="py-3 px-4 text-slate-300">
                     {pipeline.diameter}mm
                     {pipeline.voltage && ` · ${pipeline.voltage}`}
+                    {pipeline.pressure && ` · ${pipeline.pressure}`}
                   </td>
                   <td className="py-3 px-4 text-slate-300 font-mono">
                     {formatLength(pipeline.length)}
@@ -249,6 +317,7 @@ export default function PipelinePage() {
                         <Edit size={14} />
                       </button>
                       <button
+                        onClick={() => handleDelete(pipeline.id)}
                         className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-navy-600/50 rounded transition-colors"
                         title="删除"
                       >
@@ -258,6 +327,13 @@ export default function PipelinePage() {
                   </td>
                 </tr>
               ))}
+              {filteredPipelines.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="py-8 text-center text-slate-400">
+                    暂无管线数据
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -272,9 +348,6 @@ export default function PipelinePage() {
             </button>
             <button className="px-3 py-1.5 bg-tech-blue text-white rounded">
               1
-            </button>
-            <button className="px-3 py-1.5 bg-navy-700/50 border border-navy-600 rounded text-slate-300 hover:bg-navy-700 transition-colors">
-              2
             </button>
             <button className="px-3 py-1.5 bg-navy-700/50 border border-navy-600 rounded text-slate-300 hover:bg-navy-700 transition-colors">
               下一页
@@ -367,6 +440,14 @@ export default function PipelinePage() {
                       <p className="text-white">{selectedPipeline.voltage}</p>
                     </div>
                   )}
+                  {selectedPipeline.pressure && (
+                    <div>
+                      <label className="text-xs text-slate-400 block mb-1">
+                        压力等级
+                      </label>
+                      <p className="text-white">{selectedPipeline.pressure}</p>
+                    </div>
+                  )}
                   {selectedPipeline.material && (
                     <div>
                       <label className="text-xs text-slate-400 block mb-1">
@@ -381,7 +462,9 @@ export default function PipelinePage() {
                     </label>
                     <div className="flex items-center gap-2">
                       <FileCheck size={16} className="text-green-500" />
-                      <span className="text-green-500">已通过审批</span>
+                      <span className="text-green-500">
+                        {selectedPipeline.status === 'pending' ? '待审批' : '已通过审批'}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -394,6 +477,8 @@ export default function PipelinePage() {
                       </label>
                       <input
                         type="text"
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                         className="w-full h-9 px-3 bg-navy-900 border border-navy-600 rounded-md text-white focus:outline-none focus:border-tech-blue/50"
                         placeholder="请输入管线名称"
                       />
@@ -402,7 +487,16 @@ export default function PipelinePage() {
                       <label className="text-sm text-slate-300 block mb-1">
                         管线类型 <span className="text-red-500">*</span>
                       </label>
-                      <select className="w-full h-9 px-3 bg-navy-900 border border-navy-600 rounded-md text-white focus:outline-none focus:border-tech-blue/50">
+                      <select
+                        value={formData.type}
+                        onChange={(e) => setFormData({ 
+                          ...formData, 
+                          type: e.target.value as any,
+                          voltage: '',
+                          pressure: '',
+                        })}
+                        className="w-full h-9 px-3 bg-navy-900 border border-navy-600 rounded-md text-white focus:outline-none focus:border-tech-blue/50"
+                      >
                         <option value="power">电力管线</option>
                         <option value="gas">燃气管线</option>
                         <option value="water">给水管线</option>
@@ -415,6 +509,8 @@ export default function PipelinePage() {
                       </label>
                       <input
                         type="number"
+                        value={formData.diameter || ''}
+                        onChange={(e) => setFormData({ ...formData, diameter: Number(e.target.value) })}
                         className="w-full h-9 px-3 bg-navy-900 border border-navy-600 rounded-md text-white focus:outline-none focus:border-tech-blue/50"
                         placeholder="请输入管径"
                       />
@@ -425,6 +521,8 @@ export default function PipelinePage() {
                       </label>
                       <input
                         type="number"
+                        value={formData.length || ''}
+                        onChange={(e) => setFormData({ ...formData, length: Number(e.target.value) })}
                         className="w-full h-9 px-3 bg-navy-900 border border-navy-600 rounded-md text-white focus:outline-none focus:border-tech-blue/50"
                         placeholder="请输入长度"
                       />
@@ -435,6 +533,8 @@ export default function PipelinePage() {
                       </label>
                       <input
                         type="text"
+                        value={formData.owner}
+                        onChange={(e) => setFormData({ ...formData, owner: e.target.value })}
                         className="w-full h-9 px-3 bg-navy-900 border border-navy-600 rounded-md text-white focus:outline-none focus:border-tech-blue/50"
                         placeholder="请输入权属单位"
                       />
@@ -445,23 +545,118 @@ export default function PipelinePage() {
                       </label>
                       <input
                         type="date"
+                        value={formData.inDate}
+                        onChange={(e) => setFormData({ ...formData, inDate: e.target.value })}
                         className="w-full h-9 px-3 bg-navy-900 border border-navy-600 rounded-md text-white focus:outline-none focus:border-tech-blue/50"
                       />
                     </div>
                   </div>
+
+                  {formData.type === 'power' && (
+                    <div className="grid grid-cols-2 gap-4 p-4 bg-yellow-500/5 border border-yellow-500/20 rounded-lg">
+                      <div>
+                        <label className="text-sm text-yellow-400 block mb-1">
+                          <Zap size={14} className="inline mr-1" />
+                          电压等级
+                        </label>
+                        <select
+                          value={formData.voltage}
+                          onChange={(e) => setFormData({ ...formData, voltage: e.target.value })}
+                          className="w-full h-9 px-3 bg-navy-900 border border-navy-600 rounded-md text-white focus:outline-none focus:border-tech-blue/50"
+                        >
+                          <option value="">请选择电压等级</option>
+                          <option value="220kV">220kV</option>
+                          <option value="110kV">110kV</option>
+                          <option value="35kV">35kV</option>
+                          <option value="10kV">10kV</option>
+                          <option value="0.4kV">0.4kV</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-sm text-yellow-400 block mb-1">
+                          电缆材质
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.material}
+                          onChange={(e) => setFormData({ ...formData, material: e.target.value })}
+                          className="w-full h-9 px-3 bg-navy-900 border border-navy-600 rounded-md text-white focus:outline-none focus:border-tech-blue/50"
+                          placeholder="如：XLPE绝缘电缆、YJV电缆等"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {formData.type === 'gas' && (
+                    <div className="grid grid-cols-2 gap-4 p-4 bg-orange-500/5 border border-orange-500/20 rounded-lg">
+                      <div>
+                        <label className="text-sm text-orange-400 block mb-1">
+                          <Flame size={14} className="inline mr-1" />
+                          压力等级
+                        </label>
+                        <select
+                          value={formData.pressure}
+                          onChange={(e) => setFormData({ ...formData, pressure: e.target.value })}
+                          className="w-full h-9 px-3 bg-navy-900 border border-navy-600 rounded-md text-white focus:outline-none focus:border-tech-blue/50"
+                        >
+                          <option value="">请选择压力等级</option>
+                          <option value="高压 1.6MPa">高压 1.6MPa</option>
+                          <option value="次高压 0.8MPa">次高压 0.8MPa</option>
+                          <option value="中压 0.4MPa">中压 0.4MPa</option>
+                          <option value="低压 0.01MPa">低压 0.01MPa</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-sm text-orange-400 block mb-1">
+                          管道材质
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.material}
+                          onChange={(e) => setFormData({ ...formData, material: e.target.value })}
+                          className="w-full h-9 px-3 bg-navy-900 border border-navy-600 rounded-md text-white focus:outline-none focus:border-tech-blue/50"
+                          placeholder="如：钢制管道、PE管道等"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {(formData.type === 'water' || formData.type === 'communication') && (
+                    <div className="p-4 bg-navy-700/30 border border-navy-600 rounded-lg">
+                      <label className="text-sm text-slate-300 block mb-1">
+                        材质
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.material}
+                        onChange={(e) => setFormData({ ...formData, material: e.target.value })}
+                        className="w-full h-9 px-3 bg-navy-900 border border-navy-600 rounded-md text-white focus:outline-none focus:border-tech-blue/50"
+                        placeholder={formData.type === 'water' ? '如：球墨铸铁管、钢管等' : '如：GYTA光缆等'}
+                      />
+                    </div>
+                  )}
+
                   <div>
                     <label className="text-sm text-slate-300 block mb-1">
                       经过管廊段
                     </label>
                     <select
                       multiple
+                      value={formData.sectionIds}
+                      onChange={(e) => {
+                        const selected = Array.from(e.target.selectedOptions, option => option.value);
+                        setFormData({ ...formData, sectionIds: selected });
+                      }}
                       className="w-full h-24 px-3 bg-navy-900 border border-navy-600 rounded-md text-white focus:outline-none focus:border-tech-blue/50"
                     >
-                      <option>中央大道综合管廊</option>
-                      <option>科技路电力管廊</option>
-                      <option>滨江路燃气管廊</option>
-                      <option>新城区综合管廊</option>
+                      <option value="1">中央大道综合管廊</option>
+                      <option value="2">科技路电力管廊</option>
+                      <option value="3">滨江路燃气管廊</option>
+                      <option value="4">新城区综合管廊</option>
+                      <option value="5">工业园区给水管廊</option>
+                      <option value="6">老城区改造管廊</option>
                     </select>
+                    <p className="text-xs text-slate-500 mt-1">按住Ctrl可多选</p>
                   </div>
                   <div>
                     <label className="text-sm text-slate-300 block mb-1">
@@ -469,6 +664,8 @@ export default function PipelinePage() {
                     </label>
                     <textarea
                       rows={3}
+                      value={formData.note}
+                      onChange={(e) => setFormData({ ...formData, note: e.target.value })}
                       className="w-full px-3 py-2 bg-navy-900 border border-navy-600 rounded-md text-white focus:outline-none focus:border-tech-blue/50 resize-none"
                       placeholder="请输入备注信息"
                     />
@@ -487,7 +684,10 @@ export default function PipelinePage() {
                 取消
               </button>
               {!selectedPipeline && (
-                <button className="flex items-center gap-1 px-4 py-2 bg-tech-blue text-white text-sm rounded-md hover:bg-tech-blue/90 transition-colors">
+                <button
+                  onClick={handleSubmit}
+                  className="flex items-center gap-1 px-4 py-2 bg-tech-blue text-white text-sm rounded-md hover:bg-tech-blue/90 transition-colors"
+                >
                   <Save size={14} />
                   提交登记
                 </button>

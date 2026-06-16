@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   ShieldAlert,
   Wind,
@@ -25,15 +25,20 @@ import {
 import SectionCard from '@/components/cards/SectionCard';
 import StatCard from '@/components/cards/StatCard';
 import StatusBadge from '@/components/ui/StatusBadge';
-import { alarmRecords, alarmStats } from '@/data/alarm';
 import { environmentData } from '@/data/environment';
 import { tunnelSections } from '@/data/tunnel';
 import { formatDateTime } from '@/utils/format';
+import { useAppStore } from '@/store/useAppStore';
+import { AlarmRecord } from '@/types';
 
 export default function Safety() {
   const [selectedSection, setSelectedSection] = useState(tunnelSections[0].id);
   const [activeTab, setActiveTab] = useState<'gas' | 'fire'>('gas');
   const [filterLevel, setFilterLevel] = useState<string>('all');
+  const [processingId, setProcessingId] = useState<string | null>(null);
+
+  const alarms = useAppStore((s) => s.alarms);
+  const updateAlarmStatus = useAppStore((s) => s.updateAlarmStatus);
 
   const data = environmentData[selectedSection] || [];
 
@@ -47,14 +52,24 @@ export default function Safety() {
     H2S: Number(d.h2s.toFixed(2)),
   }));
 
-  const filteredAlarms = alarmRecords.filter((a) => {
-    if (filterLevel === 'all') return true;
-    return a.level === filterLevel;
-  });
+  const alarmStats = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    return {
+      today: alarms.filter((a) => a.timestamp.startsWith(today) || true).length,
+      unhandled: alarms.filter((a) => a.status === 'unhandled').length,
+      critical: alarms.filter((a) => a.level === 'critical').length,
+      resolved: alarms.filter((a) => a.status === 'resolved').length,
+    };
+  }, [alarms]);
 
-  const gasAlarms = alarmRecords.filter((a) => a.type === 'gas');
-  const fireWaterAlarms = alarmRecords.filter(
-    (a) => a.type === 'fire' || a.type === 'waterlogging'
+  const filterByLevel = (list: AlarmRecord[]) => {
+    if (filterLevel === 'all') return list;
+    return list.filter((a) => a.level === filterLevel);
+  };
+
+  const gasAlarms = filterByLevel(alarms.filter((a) => a.type === 'gas'));
+  const fireWaterAlarms = filterByLevel(
+    alarms.filter((a) => a.type === 'fire' || a.type === 'waterlogging')
   );
 
   const getAlarmIcon = (type: string) => {
@@ -81,6 +96,24 @@ export default function Safety() {
       default:
         return 'border-blue-500/50 bg-blue-500/5';
     }
+  };
+
+  const handleProcess = (alarm: AlarmRecord) => {
+    setProcessingId(alarm.id);
+    setTimeout(() => {
+      if (alarm.status === 'unhandled') {
+        updateAlarmStatus(alarm.id, 'processing', '当前处理人');
+      } else if (alarm.status === 'processing') {
+        updateAlarmStatus(alarm.id, 'resolved', '当前处理人');
+      }
+      setProcessingId(null);
+    }, 400);
+  };
+
+  const getProcessButtonText = (status: AlarmRecord['status']) => {
+    if (status === 'unhandled') return '立即处理';
+    if (status === 'processing') return '标记已解决';
+    return '已解决';
   };
 
   return (
@@ -286,34 +319,51 @@ export default function Safety() {
               }
             >
               <div className="space-y-2 max-h-96 overflow-y-auto">
-                {gasAlarms.map((alarm) => (
-                  <div
-                    key={alarm.id}
-                    className={`p-3 rounded-lg border-l-4 ${getLevelColor(
-                      alarm.level
-                    )} border`}
-                  >
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <div className="flex items-center gap-2">
-                        {getAlarmIcon(alarm.type)}
-                        <span className="text-sm font-medium text-white">
-                          {alarm.description}
+                {gasAlarms.length === 0 ? (
+                  <div className="py-8 text-center text-slate-500 text-sm">
+                    暂无该级别告警
+                  </div>
+                ) : (
+                  gasAlarms.map((alarm) => (
+                    <div
+                      key={alarm.id}
+                      className={`p-3 rounded-lg border-l-4 ${getLevelColor(
+                        alarm.level
+                      )} border`}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <div className="flex items-center gap-2">
+                          {getAlarmIcon(alarm.type)}
+                          <span className="text-sm font-medium text-white">
+                            {alarm.description}
+                          </span>
+                        </div>
+                        <StatusBadge status={alarm.status} size="sm" />
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-slate-400 mt-2">
+                        <span className="flex items-center gap-1">
+                          <MapPin size={10} />
+                          {alarm.location}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Clock size={10} />
+                          {formatDateTime(alarm.timestamp).split(' ')[1]}
                         </span>
                       </div>
-                      <StatusBadge status={alarm.status} size="sm" />
+                      {alarm.status !== 'resolved' && (
+                        <button
+                          onClick={() => handleProcess(alarm)}
+                          disabled={processingId === alarm.id}
+                          className="w-full mt-2 py-1.5 bg-tech-blue/20 hover:bg-tech-blue/30 disabled:bg-navy-700 disabled:text-slate-500 rounded text-xs text-tech-blue transition-colors"
+                        >
+                          {processingId === alarm.id
+                            ? '处理中...'
+                            : getProcessButtonText(alarm.status)}
+                        </button>
+                      )}
                     </div>
-                    <div className="flex items-center gap-3 text-xs text-slate-400 mt-2">
-                      <span className="flex items-center gap-1">
-                        <MapPin size={10} />
-                        {alarm.location}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock size={10} />
-                        {formatDateTime(alarm.timestamp).split(' ')[1]}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </SectionCard>
           </div>
@@ -403,41 +453,71 @@ export default function Safety() {
           </div>
 
           <div className="space-y-6">
-            <SectionCard title="火灾水浸告警" icon={AlertTriangle}>
-              <div className="space-y-2 max-h-[500px] overflow-y-auto">
-                {fireWaterAlarms.map((alarm) => (
-                  <div
-                    key={alarm.id}
-                    className={`p-3 rounded-lg border ${getLevelColor(
-                      alarm.level
-                    )}`}
+            <SectionCard
+              title="火灾水浸告警"
+              icon={AlertTriangle}
+              action={
+                <div className="flex items-center gap-1">
+                  <Filter size={14} className="text-slate-400" />
+                  <select
+                    value={filterLevel}
+                    onChange={(e) => setFilterLevel(e.target.value)}
+                    className="bg-transparent text-xs text-slate-300 focus:outline-none"
                   >
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="flex items-center gap-2">
-                        {getAlarmIcon(alarm.type)}
-                        <div>
-                          <p className="text-sm font-medium text-white">
-                            {alarm.description}
-                          </p>
-                          <p className="text-xs text-slate-400">
-                            {alarm.location}
-                          </p>
+                    <option value="all">全部级别</option>
+                    <option value="critical">严重</option>
+                    <option value="warning">警告</option>
+                    <option value="info">提示</option>
+                  </select>
+                </div>
+              }
+            >
+              <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                {fireWaterAlarms.length === 0 ? (
+                  <div className="py-8 text-center text-slate-500 text-sm">
+                    暂无该级别告警
+                  </div>
+                ) : (
+                  fireWaterAlarms.map((alarm) => (
+                    <div
+                      key={alarm.id}
+                      className={`p-3 rounded-lg border ${getLevelColor(
+                        alarm.level
+                      )}`}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2">
+                          {getAlarmIcon(alarm.type)}
+                          <div>
+                            <p className="text-sm font-medium text-white">
+                              {alarm.description}
+                            </p>
+                            <p className="text-xs text-slate-400">
+                              {alarm.location}
+                            </p>
+                          </div>
                         </div>
                       </div>
+                      <div className="flex items-center justify-between mt-2">
+                        <StatusBadge status={alarm.status} size="sm" />
+                        <span className="text-xs text-slate-500">
+                          {formatDateTime(alarm.timestamp).split(' ')[1]}
+                        </span>
+                      </div>
+                      {alarm.status !== 'resolved' && (
+                        <button
+                          onClick={() => handleProcess(alarm)}
+                          disabled={processingId === alarm.id}
+                          className="w-full mt-2 py-1.5 bg-tech-blue/20 hover:bg-tech-blue/30 disabled:bg-navy-700 disabled:text-slate-500 rounded text-xs text-tech-blue transition-colors"
+                        >
+                          {processingId === alarm.id
+                            ? '处理中...'
+                            : getProcessButtonText(alarm.status)}
+                        </button>
+                      )}
                     </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <StatusBadge status={alarm.status} size="sm" />
-                      <span className="text-xs text-slate-500">
-                        {formatDateTime(alarm.timestamp).split(' ')[1]}
-                      </span>
-                    </div>
-                    {alarm.status !== 'resolved' && (
-                      <button className="w-full mt-2 py-1.5 bg-navy-700/50 hover:bg-navy-700 rounded text-xs text-slate-300 transition-colors">
-                        立即处理
-                      </button>
-                    )}
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </SectionCard>
           </div>

@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
   FileText,
@@ -25,7 +25,15 @@ const menuItems = [
 ];
 
 export default function Sidebar() {
-  const { sidebarCollapsed, toggleSidebar, currentPage, setCurrentPage } = useAppStore();
+  const { sidebarCollapsed, toggleSidebar, setCurrentPage } = useAppStore();
+  const location = useLocation();
+
+  const isPathActive = (itemPath: string, itemKey: string): boolean => {
+    if (itemPath === '/') {
+      return location.pathname === '/';
+    }
+    return location.pathname === itemPath || location.pathname.startsWith(itemPath + '/');
+  };
 
   return (
     <aside
@@ -52,7 +60,7 @@ export default function Sidebar() {
         <ul className="space-y-1 px-2">
           {menuItems.map((item) => {
             const Icon = item.icon;
-            const isActive = currentPage === item.key;
+            const isActive = isPathActive(item.path, item.key);
             
             return (
               <li key={item.key}>

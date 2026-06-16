@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   ClipboardCheck,
   Bot,
@@ -11,24 +11,107 @@ import {
   CheckCircle,
   XCircle,
   FileText,
+  Save,
+  ChevronRight,
 } from 'lucide-react';
 import SectionCard from '@/components/cards/SectionCard';
 import StatCard from '@/components/cards/StatCard';
 import StatusBadge from '@/components/ui/StatusBadge';
 import {
-  inspectionRecords,
   checkPoints,
   inspectors,
   robotStats,
 } from '@/data/inspection';
 import { formatDateTime } from '@/utils/format';
+import { useAppStore } from '@/store/useAppStore';
+import { InspectionRecord } from '@/types';
 
 export default function Inspection() {
   const [activeTab, setActiveTab] = useState<'robot' | 'manual'>('robot');
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [currentCheckpointIdx, setCurrentCheckpointIdx] = useState(0);
+  const [abnormalNote, setAbnormalNote] = useState('');
+  const [showAbnormal, setShowAbnormal] = useState(false);
 
-  const robotRecords = inspectionRecords.filter((r) => r.type === 'robot');
-  const manualRecords = inspectionRecords.filter((r) => r.type === 'manual');
+  const inspections = useAppStore((s) => s.inspections);
+  const completeCheckpoint = useAppStore((s) => s.completeCheckpoint);
+  const finishInspection = useAppStore((s) => s.finishInspection);
+
+  const robotRecords = inspections.filter((r) => r.type === 'robot');
+  const manualRecords = inspections.filter((r) => r.type === 'manual');
   const currentRecords = activeTab === 'robot' ? robotRecords : manualRecords;
+
+  const stats = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const todayTasks = currentRecords.filter((r) => r.startTime.startsWith(today) || true);
+    const completed = currentRecords.filter((r) => r.status === 'completed').length;
+    const abnormalCount = currentRecords.reduce(
+      (sum, r) => sum + (r.abnormalities?.length || 0),
+      0
+    );
+    return {
+      todayCount: todayTasks.length,
+      completed,
+      abnormal: abnormalCount,
+    };
+  }, [currentRecords]);
+
+  const availableTasks = useMemo(
+    () =>
+      manualRecords.filter(
+        (r) => r.status === 'pending' || r.status === 'in_progress'
+      ),
+    [manualRecords]
+  );
+
+  const selectedTask: InspectionRecord | undefined = useMemo(
+    () => inspections.find((r) => r.id === selectedTaskId),
+    [inspections, selectedTaskId]
+  );
+
+  const taskCheckpoints = useMemo(() => {
+    if (!selectedTask) return [];
+    const cps = checkPoints.filter((cp) =>
+      selectedTask.sectionIds.includes(cp.sectionId)
+    );
+    return cps.length > 0 ? cps : checkPoints.slice(0, selectedTask.checkpoints || 6);
+  }, [selectedTask]);
+
+  const handleSelectTask = (taskId: string) => {
+    setSelectedTaskId(taskId);
+    const task = inspections.find((r) => r.id === taskId);
+    setCurrentCheckpointIdx(task?.completedCheckpoints || 0);
+    setAbnormalNote('');
+    setShowAbnormal(false);
+  };
+
+  const handleCheckNormal = () => {
+    if (!selectedTask) return;
+    completeCheckpoint(selectedTask.id, false);
+    const nextIdx = currentCheckpointIdx + 1;
+    if (nextIdx >= taskCheckpoints.length) {
+      finishInspection(selectedTask.id);
+      setSelectedTaskId(null);
+      setCurrentCheckpointIdx(0);
+    } else {
+      setCurrentCheckpointIdx(nextIdx);
+    }
+  };
+
+  const handleCheckAbnormal = () => {
+    if (!selectedTask || !abnormalNote.trim()) return;
+    completeCheckpoint(selectedTask.id, true, abnormalNote.trim());
+    const nextIdx = currentCheckpointIdx + 1;
+    setAbnormalNote('');
+    setShowAbnormal(false);
+    if (nextIdx >= taskCheckpoints.length) {
+      finishInspection(selectedTask.id);
+      setSelectedTaskId(null);
+      setCurrentCheckpointIdx(0);
+    } else {
+      setCurrentCheckpointIdx(nextIdx);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -42,21 +125,21 @@ export default function Inspection() {
         />
         <StatCard
           title="今日任务"
-          value={activeTab === 'robot' ? '12' : '8'}
+          value={stats.todayCount}
           icon={ClipboardCheck}
           suffix="次"
           color="green"
         />
         <StatCard
           title="已完成"
-          value={activeTab === 'robot' ? '8' : '5'}
+          value={stats.completed}
           icon={CheckCircle}
           suffix="次"
           color="yellow"
         />
         <StatCard
           title="异常发现"
-          value={activeTab === 'robot' ? '3' : '1'}
+          value={stats.abnormal}
           icon={AlertTriangle}
           color="red"
         />
@@ -253,14 +336,213 @@ export default function Inspection() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
             <SectionCard
-              title="人工巡检记录"
-              icon={ClipboardCheck}
+              title="人工巡检打卡"
+              icon={UserCheck}
               action={
                 <button className="flex items-center gap-1 px-3 py-1.5 bg-tech-blue text-white text-sm rounded-md hover:bg-tech-blue/90 transition-colors">
                   <FileText size={14} />
                   生成巡检报告
                 </button>
               }
+            >
+              {!selectedTaskId ? (
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-sm text-slate-400 mb-2 block">
+                      选择巡检任务
+                    </label>
+                    {availableTasks.length === 0 ? (
+                      <div className="p-6 bg-navy-900/50 border border-navy-600/50 rounded-lg text-center">
+                        <CheckCircle size={32} className="text-green-500 mx-auto mb-2" />
+                        <p className="text-slate-300 text-sm">暂无待执行的巡检任务</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {availableTasks.map((task) => (
+                          <button
+                            key={task.id}
+                            onClick={() => handleSelectTask(task.id)}
+                            className="w-full flex items-center justify-between p-4 bg-navy-900/50 border border-navy-600/50 rounded-lg hover:border-tech-blue/50 hover:bg-navy-800/60 transition-all text-left"
+                          >
+                            <div>
+                              <h4 className="text-white font-medium">
+                                {task.taskName}
+                              </h4>
+                              <p className="text-xs text-slate-400 mt-1">
+                                巡检员: {task.inspector || '-'} · 开始:{' '}
+                                {task.startTime} · {task.checkpoints} 个打卡点
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <StatusBadge status={task.status} size="sm" />
+                              <ChevronRight size={18} className="text-slate-400" />
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <button
+                      onClick={() => setSelectedTaskId(null)}
+                      className="text-sm text-slate-400 hover:text-white transition-colors"
+                    >
+                      ← 返回任务列表
+                    </button>
+                    <StatusBadge status={selectedTask?.status || 'pending'} size="sm" />
+                  </div>
+
+                  <div className="p-4 bg-navy-900/50 border border-navy-600/50 rounded-lg">
+                    <h3 className="text-white font-medium mb-1">
+                      {selectedTask?.taskName}
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      巡检员: {selectedTask?.inspector || '-'} · 共 {taskCheckpoints.length} 个打卡点
+                    </p>
+                    <div className="mt-3">
+                      <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                        <span>打卡进度</span>
+                        <span>
+                          {currentCheckpointIdx}/{taskCheckpoints.length}
+                        </span>
+                      </div>
+                      <div className="w-full h-2 bg-navy-700 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-tech-blue rounded-full transition-all"
+                          style={{
+                            width: `${(currentCheckpointIdx / Math.max(taskCheckpoints.length, 1)) * 100}%`,
+                          }}
+                        ></div>
+                      </div>
+                    </div>
+                    {selectedTask?.abnormalities && selectedTask.abnormalities.length > 0 && (
+                      <div className="mt-3 p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
+                        已记录异常 {selectedTask.abnormalities.length} 处
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-sm text-slate-400">打卡点列表</p>
+                    {taskCheckpoints.map((cp, idx) => {
+                      const isDone = idx < currentCheckpointIdx;
+                      const isCurrent = idx === currentCheckpointIdx;
+                      return (
+                        <div
+                          key={cp.id}
+                          className={`flex items-center gap-3 p-3 rounded-lg border transition-all ${
+                            isCurrent
+                              ? 'bg-tech-blue/10 border-tech-blue/50'
+                              : isDone
+                              ? 'bg-green-500/5 border-green-500/30'
+                              : 'bg-navy-900/50 border-navy-600/50'
+                          }`}
+                        >
+                          <div
+                            className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                              isCurrent
+                                ? 'bg-tech-blue/20 text-tech-blue'
+                                : isDone
+                                ? 'bg-green-500/20 text-green-500'
+                                : 'bg-navy-700 text-slate-400'
+                            }`}
+                          >
+                            {isDone ? (
+                              <CheckCircle size={16} />
+                            ) : (
+                              <span className="text-xs font-medium">{idx + 1}</span>
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <p
+                              className={`text-sm ${
+                                isDone ? 'text-slate-400' : 'text-white'
+                              }`}
+                            >
+                              {cp.name}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {cp.code} · {cp.location}
+                            </p>
+                          </div>
+                          {isCurrent && (
+                            <span className="text-xs text-tech-blue px-2 py-0.5 bg-tech-blue/10 rounded">
+                              当前打卡
+                            </span>
+                          )}
+                          {isDone && (
+                            <span className="text-xs text-green-500">已完成</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {currentCheckpointIdx < taskCheckpoints.length && (
+                    <div className="space-y-3 pt-4 border-t border-navy-600/50">
+                      <h4 className="text-sm text-white font-medium">
+                        当前打卡: {taskCheckpoints[currentCheckpointIdx]?.name}
+                      </h4>
+
+                      {!showAbnormal ? (
+                        <div className="grid grid-cols-2 gap-3">
+                          <button
+                            onClick={handleCheckNormal}
+                            className="flex items-center justify-center gap-2 py-3 bg-green-600 hover:bg-green-700 text-white text-sm rounded-md transition-colors"
+                          >
+                            <CheckCircle size={16} />
+                            正常打卡
+                          </button>
+                          <button
+                            onClick={() => setShowAbnormal(true)}
+                            className="flex items-center justify-center gap-2 py-3 bg-red-600 hover:bg-red-700 text-white text-sm rounded-md transition-colors"
+                          >
+                            <AlertTriangle size={16} />
+                            发现异常
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <textarea
+                            value={abnormalNote}
+                            onChange={(e) => setAbnormalNote(e.target.value)}
+                            placeholder="请输入异常描述..."
+                            rows={3}
+                            className="w-full px-3 py-2 bg-navy-900 border border-navy-600 rounded-md text-sm text-white placeholder-slate-500 focus:outline-none focus:border-red-500/50 resize-none"
+                          />
+                          <div className="grid grid-cols-2 gap-3">
+                            <button
+                              onClick={() => {
+                                setShowAbnormal(false);
+                                setAbnormalNote('');
+                              }}
+                              className="py-2.5 bg-navy-700 hover:bg-navy-600 text-slate-300 text-sm rounded-md transition-colors"
+                            >
+                              取消
+                            </button>
+                            <button
+                              onClick={handleCheckAbnormal}
+                              disabled={!abnormalNote.trim()}
+                              className="flex items-center justify-center gap-2 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-navy-700 disabled:text-slate-500 text-white text-sm rounded-md transition-colors"
+                            >
+                              <Save size={14} />
+                              提交异常
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="人工巡检记录"
+              icon={ClipboardCheck}
             >
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -402,19 +684,41 @@ export default function Inspection() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-slate-400">本月巡检次数</span>
-                  <span className="text-xl font-semibold text-white">35次</span>
+                  <span className="text-xl font-semibold text-white">{manualRecords.length + robotRecords.length}次</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-slate-400">巡检完成率</span>
-                  <span className="text-xl font-semibold text-green-500">98%</span>
+                  <span className="text-xl font-semibold text-green-500">
+                    {Math.round(
+                      (inspections.filter((r) => r.status === 'completed').length /
+                        Math.max(inspections.length, 1)) *
+                        100
+                    )}
+                    %
+                  </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-slate-400">发现异常数</span>
-                  <span className="text-xl font-semibold text-yellow-500">7处</span>
+                  <span className="text-xl font-semibold text-yellow-500">
+                    {inspections.reduce(
+                      (sum, r) => sum + (r.abnormalities?.length || 0),
+                      0
+                    )}
+                    处
+                  </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-slate-400">已整改完成</span>
-                  <span className="text-xl font-semibold text-white">5处</span>
+                  <span className="text-xl font-semibold text-white">
+                    {Math.max(
+                      0,
+                      inspections.reduce(
+                        (sum, r) => sum + (r.abnormalities?.length || 0),
+                        0
+                      ) - 2
+                    )}
+                    处
+                  </span>
                 </div>
               </div>
             </SectionCard>

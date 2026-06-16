@@ -2,28 +2,32 @@ import { Bell, Search, User, Settings, ChevronDown } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { alarmStats } from '@/data/alarm';
 import { useState } from 'react';
+import { useLocation } from 'react-router-dom';
 
-const pageTitles: Record<string, string> = {
-  dashboard: '工作台',
-  ledger: '管廊台账',
-  monitor: '舱室监控',
-  pipeline: '管线入廊',
-  inspection: '巡检维护',
-  safety: '环境安全',
-  emergency: '应急处置',
-  statistics: '运营统计',
+const pathTitles: Record<string, string> = {
+  '/': '工作台',
+  '/ledger': '管廊台账',
+  '/monitor': '舱室监控',
+  '/pipeline': '管线入廊',
+  '/inspection': '巡检维护',
+  '/safety': '环境安全',
+  '/emergency': '应急处置',
+  '/statistics': '运营统计',
 };
 
 export default function Header() {
+  const location = useLocation();
   const { currentPage } = useAppStore();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+
+  const pageTitle = pathTitles[location.pathname] || '系统首页';
 
   return (
     <header className="h-16 bg-navy-800/80 backdrop-blur-sm border-b border-navy-700 flex items-center justify-between px-6 flex-shrink-0">
       <div className="flex items-center gap-4">
         <h1 className="text-xl font-semibold text-white">
-          {pageTitles[currentPage] || '系统首页'}
+          {pageTitle}
         </h1>
         <div className="hidden md:flex items-center gap-2 text-sm text-slate-400">
           <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
