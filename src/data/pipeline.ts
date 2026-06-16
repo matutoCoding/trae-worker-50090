@@ -1,0 +1,152 @@
+import { Pipeline } from '@/types';
+
+export const pipelines: Pipeline[] = [
+  {
+    id: '1',
+    type: 'power',
+    name: '220kV 中心变电站进线',
+    code: 'DL-220-001',
+    diameter: 120,
+    length: 2800,
+    owner: '市供电公司',
+    inDate: '2021-08-15',
+    status: 'normal',
+    sectionIds: ['1', '2'],
+    voltage: '220kV',
+    material: 'XLPE绝缘电缆'
+  },
+  {
+    id: '2',
+    type: 'power',
+    name: '110kV 东区供电干线',
+    code: 'DL-110-002',
+    diameter: 80,
+    length: 3500,
+    owner: '市供电公司',
+    inDate: '2021-09-20',
+    status: 'normal',
+    sectionIds: ['1', '4'],
+    voltage: '110kV',
+    material: 'XLPE绝缘电缆'
+  },
+  {
+    id: '3',
+    type: 'power',
+    name: '10kV 工业园区专线',
+    code: 'DL-10-003',
+    diameter: 35,
+    length: 2100,
+    owner: '市供电公司',
+    inDate: '2022-11-10',
+    status: 'normal',
+    sectionIds: ['5'],
+    voltage: '10kV',
+    material: 'YJV电缆'
+  },
+  {
+    id: '4',
+    type: 'gas',
+    name: '高压燃气主干管',
+    code: 'RQ-GY-001',
+    diameter: 500,
+    length: 4200,
+    owner: '市燃气集团',
+    inDate: '2020-12-01',
+    status: 'normal',
+    sectionIds: ['3'],
+    pressure: '1.6MPa',
+    material: '钢制管道'
+  },
+  {
+    id: '5',
+    type: 'gas',
+    name: '中压燃气配气管',
+    code: 'RQ-ZY-002',
+    diameter: 200,
+    length: 3800,
+    owner: '市燃气集团',
+    inDate: '2021-05-18',
+    status: 'maintenance',
+    sectionIds: ['1', '4'],
+    pressure: '0.4MPa',
+    material: 'PE管道'
+  },
+  {
+    id: '6',
+    type: 'water',
+    name: '给水主干管 DN800',
+    code: 'GS-ZG-001',
+    diameter: 800,
+    length: 3500,
+    owner: '市自来水公司',
+    inDate: '2021-07-22',
+    status: 'normal',
+    sectionIds: ['1', '4'],
+    material: '球墨铸铁管'
+  },
+  {
+    id: '7',
+    type: 'water',
+    name: '工业给水管道 DN600',
+    code: 'GS-GY-002',
+    diameter: 600,
+    length: 2800,
+    owner: '市自来水公司',
+    inDate: '2022-10-05',
+    status: 'normal',
+    sectionIds: ['5'],
+    material: '钢管'
+  },
+  {
+    id: '8',
+    type: 'communication',
+    name: '电信主干光缆',
+    code: 'TX-DX-001',
+    diameter: 50,
+    length: 5200,
+    owner: '电信公司',
+    inDate: '2021-06-30',
+    status: 'normal',
+    sectionIds: ['1', '2', '4'],
+    material: 'GYTA光缆'
+  },
+  {
+    id: '9',
+    type: 'communication',
+    name: '移动主干光缆',
+    code: 'TX-YD-002',
+    diameter: 45,
+    length: 4800,
+    owner: '移动公司',
+    inDate: '2021-08-12',
+    status: 'normal',
+    sectionIds: ['1', '3', '4'],
+    material: 'GYTA光缆'
+  },
+  {
+    id: '10',
+    type: 'power',
+    name: '10kV 备用线路',
+    code: 'DL-10-004',
+    diameter: 25,
+    length: 1500,
+    owner: '市供电公司',
+    inDate: '2023-03-15',
+    status: 'pending',
+    sectionIds: ['6'],
+    voltage: '10kV',
+    material: 'YJV电缆'
+  }
+];
+
+export const pipelineStats = {
+  total: 10,
+  power: 4,
+  gas: 2,
+  water: 2,
+  communication: 2,
+  normal: 7,
+  maintenance: 1,
+  pending: 2,
+  totalLength: 34200
+};
