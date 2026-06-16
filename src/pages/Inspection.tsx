@@ -17,6 +17,13 @@ import {
   Eye,
   X,
   User,
+  Filter,
+  Search,
+  Send,
+  ThumbsUp,
+  ThumbsDown,
+  History,
+  ArrowRight,
 } from 'lucide-react';
 import SectionCard from '@/components/cards/SectionCard';
 import StatCard from '@/components/cards/StatCard';
@@ -24,14 +31,13 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import {
   checkPoints,
   inspectors,
-  robotStats,
 } from '@/data/inspection';
-import { formatDateTime } from '@/utils/format';
 import { useAppStore } from '@/store/useAppStore';
 import {
   InspectionRecord,
   RectificationItem,
   AbnormalDetail,
+  RectificationTimeline,
 } from '@/types';
 
 export default function Inspection() {
@@ -49,6 +55,12 @@ export default function Inspection() {
     handler: '',
     handleNote: '',
   });
+  const [reviewForm, setReviewForm] = useState({
+    reviewer: '',
+    reviewNote: '',
+  });
+  const [rectificationFilter, setRectificationFilter] = useState<string>('all');
+  const [rectificationSearch, setRectificationSearch] = useState('');
 
   const inspections = useAppStore((s) => s.inspections);
   const rectifications = useAppStore((s) => s.rectifications);
@@ -57,10 +69,11 @@ export default function Inspection() {
   const finishInspection = useAppStore((s) => s.finishInspection);
   const resolveRectification = useAppStore((s) => s.resolveRectification);
   const updateRectification = useAppStore((s) => s.updateRectification);
+  const submitRectificationForReview = useAppStore((s) => s.submitRectificationForReview);
+  const reviewRectification = useAppStore((s) => s.reviewRectification);
 
   const robotRecords = inspections.filter((r) => r.type === 'robot');
   const manualRecords = inspections.filter((r) => r.type === 'manual');
-  const currentRecords = activeTab === 'robot' ? robotRecords : activeTab === 'manual' ? manualRecords : [];
 
   const stats = useMemo(() => {
     const allRecords = inspections;
@@ -82,11 +95,19 @@ export default function Inspection() {
     const pendingRectCount = rectifications.filter(
       (r) => r.status === 'pending' || r.status === 'processing'
     ).length;
+    const reviewingCount = rectifications.filter(
+      (r) => r.status === 'reviewing'
+    ).length;
+    const rejectedCount = rectifications.filter(
+      (r) => r.status === 'rejected'
+    ).length;
     return {
       todayCount: todayTasks.length,
       completed,
       abnormal: abnormalCount,
       pendingRect: pendingRectCount,
+      reviewing: reviewingCount,
+      rejected: rejectedCount,
       resolved: resolvedCount,
     };
   }, [inspections, rectifications]);
@@ -108,6 +129,23 @@ export default function Inspection() {
     if (!selectedTaskId) return [];
     return getTaskCheckpoints(selectedTaskId);
   }, [selectedTaskId, getTaskCheckpoints]);
+
+  const filteredRectifications = useMemo(() => {
+    let list = rectifications;
+    if (rectificationFilter !== 'all') {
+      list = list.filter((r) => r.status === rectificationFilter);
+    }
+    if (rectificationSearch.trim()) {
+      const keyword = rectificationSearch.trim().toLowerCase();
+      list = list.filter(
+        (r) =>
+          r.abnormalDescription.toLowerCase().includes(keyword) ||
+          r.checkpointName.toLowerCase().includes(keyword) ||
+          r.inspectionName.toLowerCase().includes(keyword)
+      );
+    }
+    return list;
+  }, [rectifications, rectificationFilter, rectificationSearch]);
 
   const handleSelectTask = (taskId: string) => {
     const task = inspections.find((r) => r.id === taskId);
@@ -187,16 +225,53 @@ export default function Inspection() {
     setRectificationForm({ handler: '', handleNote: '' });
   };
 
+  const handleSubmitReview = () => {
+    if (!showRectificationDetail || !rectificationForm.handler.trim() || !rectificationForm.handleNote.trim()) return;
+    submitRectificationForReview(
+      showRectificationDetail.id,
+      rectificationForm.handler.trim(),
+      rectificationForm.handleNote.trim()
+    );
+    setShowRectificationDetail(null);
+    setRectificationForm({ handler: '', handleNote: '' });
+  };
+
+  const handleReviewPass = () => {
+    if (!showRectificationDetail || !reviewForm.reviewer.trim()) return;
+    reviewRectification(showRectificationDetail.id, {
+      reviewer: reviewForm.reviewer.trim(),
+      reviewNote: reviewForm.reviewNote.trim() || '整改合格，复核通过',
+      passed: true,
+    });
+    setShowRectificationDetail(null);
+    setReviewForm({ reviewer: '', reviewNote: '' });
+  };
+
+  const handleReviewReject = () => {
+    if (!showRectificationDetail || !reviewForm.reviewer.trim() || !reviewForm.reviewNote.trim()) return;
+    reviewRectification(showRectificationDetail.id, {
+      reviewer: reviewForm.reviewer.trim(),
+      reviewNote: reviewForm.reviewNote.trim(),
+      passed: false,
+    });
+    setShowRectificationDetail(null);
+    setReviewForm({ reviewer: '', reviewNote: '' });
+  };
+
   const renderRectificationStatusBadge = (status: string) => {
     const colors: Record<string, string> = {
       pending: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/30',
       processing: 'bg-blue-500/10 text-blue-500 border-blue-500/30',
+      reviewing: 'bg-purple-500/10 text-purple-500 border-purple-500/30',
       resolved: 'bg-green-500/10 text-green-500 border-green-500/30',
+      rejected: 'bg-red-500/10 text-red-500 border-red-500/30',
     };
     const labels: Record<string, string> = {
       pending: '待处理',
       processing: '处理中',
+      reviewing: '待复核',
       resolved: '已整改',
+      rejected: '复核不通过',
     };
     return (
       <span className={`inline-flex items-center px-2 py-0.5 text-xs rounded border ${colors[status] || ''}`}>
@@ -205,9 +280,28 @@ export default function Inspection() {
     );
   };
 
+  const renderTimelineAction = (action: RectificationTimeline['action']) => {
+    const config: Record<RectificationTimeline['action'], { label: string; icon: any; color: string }> = {
+      report: { label: '异常上报', icon: AlertTriangle, color: 'text-red-500' },
+      start: { label: '开始整改', icon: Play, color: 'text-blue-500' },
+      submit_review: { label: '提交复核', icon: Send, color: 'text-purple-500' },
+      review_pass: { label: '复核通过', icon: ThumbsUp, color: 'text-green-500' },
+      review_reject: { label: '复核不通过', icon: ThumbsDown, color: 'text-red-500' },
+      rework: { label: '重新整改', icon: Wrench, color: 'text-yellow-500' },
+    };
+    const c = config[action] || config.report;
+    const Icon = c.icon;
+    return (
+      <div className={`flex items-center gap-1.5 ${c.color}`}>
+        <Icon size={12} />
+        <span className="text-xs font-medium">{c.label}</span>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <StatCard
           title="巡检人员"
           value={inspectors.length}
@@ -235,6 +329,13 @@ export default function Inspection() {
           icon={Wrench}
           color="red"
           suffix="项"
+        />
+        <StatCard
+          title="待复核"
+          value={stats.reviewing}
+          icon={History}
+          suffix="项"
+          color="purple"
         />
         <StatCard
           title="已整改"
@@ -278,9 +379,9 @@ export default function Inspection() {
         >
           <Wrench size={18} />
           整改项管理
-          {stats.pendingRect > 0 && (
+          {stats.pendingRect + stats.reviewing > 0 && (
             <span className="absolute -top-1 -right-2 w-5 h-5 bg-red-500 rounded-full text-white text-xs flex items-center justify-center">
-              {stats.pendingRect}
+              {stats.pendingRect + stats.reviewing}
             </span>
           )}
         </button>
@@ -289,6 +390,43 @@ export default function Inspection() {
       {activeTab === 'rectification' ? (
         <div className="space-y-6">
           <SectionCard title="整改项列表" icon={Wrench}>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-2 flex-wrap">
+                {[
+                  { key: 'all', label: '全部' },
+                  { key: 'pending', label: '待处理' },
+                  { key: 'processing', label: '处理中' },
+                  { key: 'reviewing', label: '待复核' },
+                  { key: 'resolved', label: '已整改' },
+                  { key: 'rejected', label: '复核不通过' },
+                ].map((f) => (
+                  <button
+                    key={f.key}
+                    onClick={() => setRectificationFilter(f.key)}
+                    className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+                      rectificationFilter === f.key
+                        ? 'bg-tech-blue text-white'
+                        : 'bg-navy-700/50 border border-navy-600 text-slate-300 hover:bg-navy-700'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+              <div className="relative">
+                <Search
+                  size={14}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                />
+                <input
+                  type="text"
+                  placeholder="搜索整改项..."
+                  value={rectificationSearch}
+                  onChange={(e) => setRectificationSearch(e.target.value)}
+                  className="w-56 h-8 pl-8 pr-3 bg-navy-900/50 border border-navy-600 rounded-md text-sm text-white placeholder-slate-500 focus:outline-none focus:border-tech-blue/50"
+                />
+              </div>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -306,9 +444,6 @@ export default function Inspection() {
                       上报人
                     </th>
                     <th className="text-left py-3 px-4 text-slate-400 font-medium">
-                      上报时间
-                    </th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium">
                       处理人
                     </th>
                     <th className="text-left py-3 px-4 text-slate-400 font-medium">
@@ -320,28 +455,30 @@ export default function Inspection() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rectifications.map((rect) => (
+                  {filteredRectifications.map((rect) => (
                     <tr
                       key={rect.id}
                       className="border-b border-navy-600/30 hover:bg-navy-700/20"
                     >
-                      <td className="py-3 px-4 text-white max-w-xs truncate">
-                        {rect.abnormalDescription}
+                      <td className="py-3 px-4 text-white max-w-xs">
+                        <div className="font-medium">{rect.abnormalDescription}</div>
+                        <div className="text-xs text-slate-400 mt-0.5">{rect.reportTime}</div>
                       </td>
                       <td className="py-3 px-4 text-slate-300 text-xs">
                         {rect.inspectionName}
                       </td>
                       <td className="py-3 px-4 text-slate-300 text-xs">
-                        {rect.checkpointName} · {rect.location}
+                        {rect.checkpointName}
+                        <div className="text-slate-500">{rect.location}</div>
                       </td>
                       <td className="py-3 px-4 text-slate-300 text-xs">
                         {rect.reporter}
                       </td>
-                      <td className="py-3 px-4 text-slate-300 text-xs font-mono">
-                        {rect.reportTime.split(' ')[1]}
-                      </td>
                       <td className="py-3 px-4 text-slate-300 text-xs">
-                        {rect.handler || '-'}
+                        <div>{rect.handler || '-'}</div>
+                        {rect.reviewer && (
+                          <div className="text-slate-500 mt-0.5">复核人: {rect.reviewer}</div>
+                        )}
                       </td>
                       <td className="py-3 px-4">
                         {renderRectificationStatusBadge(rect.status)}
@@ -354,18 +491,19 @@ export default function Inspection() {
                               handler: rect.handler || '',
                               handleNote: rect.handleNote || '',
                             });
+                            setReviewForm({ reviewer: '', reviewNote: '' });
                           }}
                           className="flex items-center gap-1 px-2 py-1 text-xs text-tech-blue hover:bg-tech-blue/10 rounded transition-colors"
                         >
                           <Eye size={12} />
-                          处理
+                          查看
                         </button>
                       </td>
                     </tr>
                   ))}
-                  {rectifications.length === 0 && (
+                  {filteredRectifications.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="py-8 text-center text-slate-500">
+                      <td colSpan={7} className="py-8 text-center text-slate-500">
                         暂无整改项
                       </td>
                     </tr>
@@ -425,7 +563,7 @@ export default function Inspection() {
                     <div className="flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2 text-slate-400">
                         <Clock size={12} />
-                        <span>开始: {record.startTime.split(' ')[1]}</span>
+                        <span>开始: {record.startTime}</span>
                       </div>
                       {record.abnormalities &&
                       record.abnormalities.length > 0 ? (
@@ -653,7 +791,8 @@ export default function Inspection() {
                     {selectedTask?.abnormalities && selectedTask.abnormalities.length > 0 && (
                       <div className="mt-3 p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
                         已记录异常 {selectedTask.abnormalities.length} 处，
-                        待处理 {selectedTask.abnormalities.filter(a => a.status !== 'resolved').length} 处
+                        待处理 {selectedTask.abnormalities.filter(a => a.status !== 'resolved').length} 处，
+                        已整改 {selectedTask.abnormalities.filter(a => a.status === 'resolved').length} 处
                       </div>
                     )}
                   </div>
@@ -762,7 +901,7 @@ export default function Inspection() {
                               className="flex items-center justify-center gap-2 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-navy-700 disabled:text-slate-500 text-white text-sm rounded-md transition-colors"
                             >
                               <Save size={14} />
-                              提交异常
+                              提交异常并生成整改项
                             </button>
                           </div>
                         </div>
@@ -805,57 +944,62 @@ export default function Inspection() {
                     </tr>
                   </thead>
                   <tbody>
-                    {manualRecords.map((record) => (
-                      <tr
-                        key={record.id}
-                        className="border-b border-navy-600/30 hover:bg-navy-700/20"
-                      >
-                        <td className="py-3 px-4 text-white">
-                          {record.taskName}
-                        </td>
-                        <td className="py-3 px-4 text-slate-300">
-                          {record.inspector || '-'}
-                        </td>
-                        <td className="py-3 px-4 text-slate-300 font-mono text-xs">
-                          {record.startTime.split(' ')[1]}
-                        </td>
-                        <td className="py-3 px-4 text-slate-300 text-xs">
-                          {record.completedCheckpoints}/{record.checkpoints}
-                        </td>
-                        <td className="py-3 px-4">
-                          <StatusBadge status={record.status} size="sm" />
-                        </td>
-                        <td className="py-3 px-4">
-                          {record.abnormalities &&
-                          record.abnormalities.length > 0 ? (
-                            <span className="text-red-500 text-sm">
-                              {record.abnormalities.length} 处
-                            </span>
-                          ) : (
-                            <span className="text-green-500 text-sm">无</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-4">
-                          {record.abnormalities && record.abnormalities.length > 0 && (
-                            <button
-                              onClick={() => {
-                                const pending = record.abnormalities!.find(a => a.status !== 'resolved');
-                                if (pending) {
+                    {manualRecords.map((record) => {
+                      const abnormalList = record.abnormalities || [];
+                      const pendingAbnormal = abnormalList.filter(a => a.status !== 'resolved').length;
+                      const resolvedAbnormal = abnormalList.filter(a => a.status === 'resolved').length;
+                      return (
+                        <tr
+                          key={record.id}
+                          className="border-b border-navy-600/30 hover:bg-navy-700/20"
+                        >
+                          <td className="py-3 px-4 text-white">
+                            {record.taskName}
+                          </td>
+                          <td className="py-3 px-4 text-slate-300">
+                            {record.inspector || '-'}
+                          </td>
+                          <td className="py-3 px-4 text-slate-300 font-mono text-xs">
+                            {record.startTime}
+                          </td>
+                          <td className="py-3 px-4 text-slate-300 text-xs">
+                            {record.completedCheckpoints}/{record.checkpoints}
+                          </td>
+                          <td className="py-3 px-4">
+                            <StatusBadge status={record.status} size="sm" />
+                          </td>
+                          <td className="py-3 px-4">
+                            {abnormalList.length > 0 ? (
+                              <div>
+                                <span className="text-red-500 text-sm">共 {abnormalList.length} 处</span>
+                                <div className="text-xs text-slate-500 mt-0.5">
+                                  待处理 {pendingAbnormal} · 已整改 {resolvedAbnormal}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-green-500 text-sm">无</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            {abnormalList.length > 0 && (
+                              <button
+                                onClick={() => {
+                                  const pending = abnormalList.find(a => a.status !== 'resolved') || abnormalList[0];
                                   setShowAbnormalDetail({
                                     inspection: record,
                                     abnormal: pending
                                   });
-                                }
-                              }}
-                              className="flex items-center gap-1 text-xs text-tech-blue hover:underline"
-                            >
-                              <Eye size={12} />
-                              查看异常
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                                }}
+                                className="flex items-center gap-1 text-xs text-tech-blue hover:underline"
+                              >
+                                <Eye size={12} />
+                                查看异常
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -935,46 +1079,39 @@ export default function Inspection() {
               </div>
             </SectionCard>
 
-            <SectionCard title="巡检统计">
+            <SectionCard title="整改概览">
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-400">本月巡检次数</span>
-                  <span className="text-xl font-semibold text-white">{manualRecords.length + robotRecords.length}次</span>
+                  <span className="text-sm text-slate-400">待处理</span>
+                  <span className="text-xl font-semibold text-red-500">{stats.pendingRect} 处</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-400">巡检完成率</span>
-                  <span className="text-xl font-semibold text-green-500">
-                    {Math.round(
-                      (inspections.filter((r) => r.status === 'completed').length /
-                        Math.max(inspections.length, 1)) *
-                        100
-                    )}
-                    %
-                  </span>
+                  <span className="text-sm text-slate-400">待复核</span>
+                  <span className="text-xl font-semibold text-purple-500">{stats.reviewing} 处</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-400">发现异常数</span>
-                  <span className="text-xl font-semibold text-yellow-500">
-                    {inspections.reduce(
-                      (sum, r) => sum + (r.abnormalities?.filter(a => a.status !== 'resolved').length || 0),
-                      0
-                    )}
-                    处
-                  </span>
+                  <span className="text-sm text-slate-400">复核不通过</span>
+                  <span className="text-xl font-semibold text-orange-500">{stats.rejected} 处</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-slate-400">已整改完成</span>
-                  <span className="text-xl font-semibold text-white">
-                    {rectifications.filter(r => r.status === 'resolved').length}
-                    处
-                  </span>
+                  <span className="text-xl font-semibold text-green-500">{stats.resolved} 处</span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-400">待整改</span>
-                  <span className="text-xl font-semibold text-red-500">
-                    {stats.pendingRect}
-                    处
-                  </span>
+                <div className="pt-4 mt-4 border-t border-navy-600/50">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-slate-400">整改闭环率</span>
+                    <span className="text-xl font-semibold text-white">
+                      {Math.round((stats.resolved / Math.max(stats.resolved + stats.pendingRect + stats.reviewing + stats.rejected, 1)) * 100)}%
+                    </span>
+                  </div>
+                  <div className="w-full h-2 mt-2 bg-navy-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-green-500 rounded-full"
+                      style={{
+                        width: `${(stats.resolved / Math.max(stats.resolved + stats.pendingRect + stats.reviewing + stats.rejected, 1)) * 100}%`,
+                      }}
+                    ></div>
+                  </div>
                 </div>
               </div>
             </SectionCard>
@@ -1007,7 +1144,7 @@ export default function Inspection() {
                 </div>
                 <div>
                   <label className="text-xs text-slate-400 block mb-1">
-                    状态
+                    整改状态
                   </label>
                   {renderRectificationStatusBadge(showAbnormalDetail.abnormal.status)}
                 </div>
@@ -1047,6 +1184,41 @@ export default function Inspection() {
                   {showAbnormalDetail.abnormal.description}
                 </p>
               </div>
+              {(() => {
+                const relatedRect = rectifications.find(
+                  (r) => r.abnormalId === showAbnormalDetail.abnormal.id
+                );
+                if (relatedRect && relatedRect.timeline.length > 1) {
+                  return (
+                    <div>
+                      <label className="text-xs text-slate-400 block mb-2">
+                        整改时间线
+                      </label>
+                      <div className="relative pl-5">
+                        {relatedRect.timeline.map((tl, i) => (
+                          <div key={tl.id} className="relative pb-4 last:pb-0">
+                            {i < relatedRect.timeline.length - 1 && (
+                              <div className="absolute left-[-14px] top-4 w-0.5 h-full bg-navy-600" />
+                            )}
+                            <div className="absolute left-[-18px] top-0 w-3 h-3 rounded-full bg-tech-blue border-2 border-navy-800" />
+                            <div className="p-3 bg-navy-900/50 border border-navy-600/50 rounded-md">
+                              <div className="flex items-center justify-between mb-1">
+                                {renderTimelineAction(tl.action)}
+                                <span className="text-xs text-slate-500 font-mono">{tl.time.split(' ')[1]}</span>
+                              </div>
+                              <p className="text-xs text-slate-400">操作人: {tl.operator}</p>
+                              {tl.note && (
+                                <p className="text-xs text-slate-300 mt-1">{tl.note}</p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
             </div>
             <div className="px-6 py-4 border-t border-navy-600 flex justify-end gap-3">
               <button
@@ -1067,12 +1239,13 @@ export default function Inspection() {
                         handler: rect.handler || '',
                         handleNote: rect.handleNote || '',
                       });
+                      setReviewForm({ reviewer: '', reviewNote: '' });
                     }
                     setShowAbnormalDetail(null);
                   }}
                   className="px-4 py-2 bg-tech-blue text-white text-sm rounded-md hover:bg-tech-blue/90 transition-colors flex items-center gap-1"
                 >
-                  <Wrench size={14} />
+                  <ArrowRight size={14} />
                   前往整改
                 </button>
               )}
@@ -1083,16 +1256,17 @@ export default function Inspection() {
 
       {showRectificationDetail && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-navy-800 border border-navy-600 rounded-lg w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col">
+          <div className="bg-navy-800 border border-navy-600 rounded-lg w-full max-w-xl max-h-[90vh] overflow-hidden flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-navy-600">
               <h3 className="text-lg font-medium text-white flex items-center gap-2">
                 <Wrench size={18} className="text-yellow-500" />
-                整改项处理
+                整改项详情
               </h3>
               <button
                 onClick={() => {
                   setShowRectificationDetail(null);
                   setRectificationForm({ handler: '', handleNote: '' });
+                  setReviewForm({ reviewer: '', reviewNote: '' });
                 }}
                 className="text-slate-400 hover:text-white"
               >
@@ -1116,12 +1290,12 @@ export default function Inspection() {
                     <span className="text-slate-300">{showRectificationDetail.location}</span>
                   </div>
                   <div>
-                    <span className="text-slate-400">上报人: </span>
-                    <span className="text-slate-300">{showRectificationDetail.reporter}</span>
+                    <span className="text-slate-400">所属任务: </span>
+                    <span className="text-slate-300">{showRectificationDetail.inspectionName}</span>
                   </div>
                   <div>
                     <span className="text-slate-400">上报时间: </span>
-                    <span className="text-slate-300">{showRectificationDetail.reportTime.split(' ')[1]}</span>
+                    <span className="text-slate-300 font-mono">{showRectificationDetail.reportTime}</span>
                   </div>
                 </div>
               </div>
@@ -1140,7 +1314,7 @@ export default function Inspection() {
                         处理时间
                       </label>
                       <p className="text-white text-sm font-mono text-xs">
-                        {showRectificationDetail.handleTime.split(' ')[1]}
+                        {showRectificationDetail.handleTime}
                       </p>
                     </div>
                   )}
@@ -1158,59 +1332,186 @@ export default function Inspection() {
                 </div>
               )}
 
-              {showRectificationDetail.status !== 'resolved' && (
-                <>
-                  <div className="pt-2">
-                    <label className="text-sm text-slate-300 block mb-1">
-                      处理人 <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <User
-                        size={14}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                      />
-                      <input
-                        type="text"
-                        value={rectificationForm.handler}
-                        onChange={(e) =>
-                          setRectificationForm({
-                            ...rectificationForm,
-                            handler: e.target.value,
-                          })
-                        }
-                        className="w-full h-9 pl-8 pr-3 bg-navy-900 border border-navy-600 rounded-md text-sm text-white focus:outline-none focus:border-tech-blue/50"
-                        placeholder="请输入处理人姓名"
-                      />
-                    </div>
-                  </div>
+              {showRectificationDetail.reviewer && (
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-sm text-slate-300 block mb-1">
-                      处理说明
-                      {showRectificationDetail.status !== 'pending' && (
-                        <span className="text-red-500"> *</span>
-                      )}
+                    <label className="text-xs text-slate-400 block mb-1">
+                      复核人
                     </label>
-                    <textarea
-                      rows={3}
-                      value={rectificationForm.handleNote}
-                      onChange={(e) =>
-                        setRectificationForm({
-                          ...rectificationForm,
-                          handleNote: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 bg-navy-900 border border-navy-600 rounded-md text-sm text-white focus:outline-none focus:border-tech-blue/50 resize-none"
-                      placeholder="请输入处理说明..."
-                    />
+                    <p className="text-white text-sm">{showRectificationDetail.reviewer}</p>
                   </div>
-                </>
+                  {showRectificationDetail.reviewTime && (
+                    <div>
+                      <label className="text-xs text-slate-400 block mb-1">
+                        复核时间
+                      </label>
+                      <p className="text-white text-sm font-mono text-xs">
+                        {showRectificationDetail.reviewTime}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {showRectificationDetail.reviewNote && (
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">
+                    复核意见
+                  </label>
+                  <p className={`text-white text-sm p-3 rounded-md border ${
+                    showRectificationDetail.status === 'rejected'
+                      ? 'bg-red-500/10 border-red-500/30'
+                      : 'bg-navy-900/50 border-navy-600/50'
+                  }`}>
+                    {showRectificationDetail.reviewNote}
+                  </p>
+                </div>
+              )}
+
+              <div>
+                <label className="text-xs text-slate-400 block mb-2 flex items-center gap-1">
+                  <History size={12} />
+                  处理时间线
+                </label>
+                <div className="relative pl-5">
+                  {showRectificationDetail.timeline.map((tl, i) => (
+                    <div key={tl.id} className="relative pb-4 last:pb-0">
+                      {i < showRectificationDetail.timeline.length - 1 && (
+                        <div className="absolute left-[-14px] top-4 w-0.5 h-full bg-navy-600" />
+                      )}
+                      <div className={`absolute left-[-18px] top-0 w-3 h-3 rounded-full border-2 border-navy-800 ${
+                        tl.action === 'report' ? 'bg-red-500'
+                          : tl.action === 'start' ? 'bg-blue-500'
+                          : tl.action === 'submit_review' ? 'bg-purple-500'
+                          : tl.action === 'review_pass' ? 'bg-green-500'
+                          : tl.action === 'review_reject' ? 'bg-orange-500'
+                          : 'bg-yellow-500'
+                      }`} />
+                      <div className="p-3 bg-navy-900/50 border border-navy-600/50 rounded-md">
+                        <div className="flex items-center justify-between mb-1">
+                          {renderTimelineAction(tl.action)}
+                          <span className="text-xs text-slate-500 font-mono">{tl.time}</span>
+                        </div>
+                        <p className="text-xs text-slate-400">操作人: {tl.operator}</p>
+                        {tl.note && (
+                          <p className="text-xs text-slate-300 mt-1">{tl.note}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {(showRectificationDetail.status === 'pending' ||
+                showRectificationDetail.status === 'processing' ||
+                showRectificationDetail.status === 'reviewing' ||
+                showRectificationDetail.status === 'rejected') && (
+                <div className="pt-2 border-t border-navy-600/50">
+                  {showRectificationDetail.status !== 'reviewing' && (
+                    <>
+                      <div className="pt-2">
+                        <label className="text-sm text-slate-300 block mb-1">
+                          处理人 <span className="text-red-500">*</span>
+                        </label>
+                        <div className="relative">
+                          <User
+                            size={14}
+                            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                          />
+                          <input
+                            type="text"
+                            value={rectificationForm.handler}
+                            onChange={(e) =>
+                              setRectificationForm({
+                                ...rectificationForm,
+                                handler: e.target.value,
+                              })
+                            }
+                            className="w-full h-9 pl-8 pr-3 bg-navy-900 border border-navy-600 rounded-md text-sm text-white focus:outline-none focus:border-tech-blue/50"
+                            placeholder="请输入处理人姓名"
+                          />
+                        </div>
+                      </div>
+                      <div className="mt-3">
+                        <label className="text-sm text-slate-300 block mb-1">
+                          处理说明
+                          {(showRectificationDetail.status !== 'pending') && (
+                            <span className="text-red-500"> *</span>
+                          )}
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={rectificationForm.handleNote}
+                          onChange={(e) =>
+                            setRectificationForm({
+                              ...rectificationForm,
+                              handleNote: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 bg-navy-900 border border-navy-600 rounded-md text-sm text-white focus:outline-none focus:border-tech-blue/50 resize-none"
+                          placeholder={
+                            showRectificationDetail.status === 'pending'
+                              ? '请输入整改计划（选填）'
+                              : '请输入整改完成说明'
+                          }
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {showRectificationDetail.status === 'reviewing' && (
+                    <>
+                      <div className="pt-2">
+                        <label className="text-sm text-slate-300 block mb-1">
+                          复核人 <span className="text-red-500">*</span>
+                        </label>
+                        <div className="relative">
+                          <User
+                            size={14}
+                            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                          />
+                          <input
+                            type="text"
+                            value={reviewForm.reviewer}
+                            onChange={(e) =>
+                              setReviewForm({
+                                ...reviewForm,
+                                reviewer: e.target.value,
+                              })
+                            }
+                            className="w-full h-9 pl-8 pr-3 bg-navy-900 border border-navy-600 rounded-md text-sm text-white focus:outline-none focus:border-tech-blue/50"
+                            placeholder="请输入复核人姓名"
+                          />
+                        </div>
+                      </div>
+                      <div className="mt-3">
+                        <label className="text-sm text-slate-300 block mb-1">
+                          复核意见 <span className="text-red-500">*</span>
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={reviewForm.reviewNote}
+                          onChange={(e) =>
+                            setReviewForm({
+                              ...reviewForm,
+                              reviewNote: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 bg-navy-900 border border-navy-600 rounded-md text-sm text-white focus:outline-none focus:border-tech-blue/50 resize-none"
+                          placeholder="如不通过请说明原因..."
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
             </div>
-            <div className="px-6 py-4 border-t border-navy-600 flex justify-end gap-3">
+            <div className="px-6 py-4 border-t border-navy-600 flex justify-end gap-3 flex-wrap">
               <button
                 onClick={() => {
                   setShowRectificationDetail(null);
                   setRectificationForm({ handler: '', handleNote: '' });
+                  setReviewForm({ reviewer: '', reviewNote: '' });
                 }}
                 className="px-4 py-2 bg-navy-700/50 border border-navy-600 rounded-md text-sm text-slate-300 hover:bg-navy-700 transition-colors"
               >
@@ -1228,13 +1529,43 @@ export default function Inspection() {
               )}
               {showRectificationDetail.status === 'processing' && (
                 <button
-                  onClick={handleResolveRectification}
+                  onClick={handleSubmitReview}
                   disabled={!rectificationForm.handler.trim() || !rectificationForm.handleNote.trim()}
-                  className="px-4 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 disabled:bg-navy-700 disabled:text-slate-500 transition-colors flex items-center gap-1"
+                  className="px-4 py-2 bg-purple-600 text-white text-sm rounded-md hover:bg-purple-700 disabled:bg-navy-700 disabled:text-slate-500 transition-colors flex items-center gap-1"
                 >
-                  <CheckCircle size={14} />
-                  完成整改
+                  <Send size={14} />
+                  提交复核
                 </button>
+              )}
+              {showRectificationDetail.status === 'rejected' && (
+                <button
+                  onClick={handleSubmitReview}
+                  disabled={!rectificationForm.handler.trim() || !rectificationForm.handleNote.trim()}
+                  className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 disabled:bg-navy-700 disabled:text-slate-500 transition-colors flex items-center gap-1"
+                >
+                  <Wrench size={14} />
+                  重新整改提交复核
+                </button>
+              )}
+              {showRectificationDetail.status === 'reviewing' && (
+                <>
+                  <button
+                    onClick={handleReviewReject}
+                    disabled={!reviewForm.reviewer.trim() || !reviewForm.reviewNote.trim()}
+                    className="px-4 py-2 bg-red-600 text-white text-sm rounded-md hover:bg-red-700 disabled:bg-navy-700 disabled:text-slate-500 transition-colors flex items-center gap-1"
+                  >
+                    <ThumbsDown size={14} />
+                    复核不通过
+                  </button>
+                  <button
+                    onClick={handleReviewPass}
+                    disabled={!reviewForm.reviewer.trim()}
+                    className="px-4 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 disabled:bg-navy-700 disabled:text-slate-500 transition-colors flex items-center gap-1"
+                  >
+                    <ThumbsUp size={14} />
+                    复核通过
+                  </button>
+                </>
               )}
             </div>
           </div>

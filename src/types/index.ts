@@ -28,6 +28,14 @@ export interface EnvironmentData {
   waterlogging: boolean;
 }
 
+export interface ApprovalHistoryItem {
+  id: string;
+  action: 'submit' | 'approve' | 'reject' | 'resubmit';
+  operator: string;
+  time: string;
+  note?: string;
+}
+
 export interface Pipeline {
   id: string;
   type: 'power' | 'gas' | 'water' | 'communication';
@@ -42,6 +50,8 @@ export interface Pipeline {
   approver?: string;
   approvalTime?: string;
   approvalNote?: string;
+  lastRejectNote?: string;
+  approvalHistory: ApprovalHistoryItem[];
   sectionIds: string[];
   voltage?: string;
   pressure?: string;
@@ -179,6 +189,14 @@ export interface Personnel {
   lastUpdate?: string;
 }
 
+export interface RectificationTimeline {
+  id: string;
+  action: 'report' | 'start' | 'submit_review' | 'review_pass' | 'review_reject' | 'rework';
+  operator: string;
+  time: string;
+  note?: string;
+}
+
 export interface RectificationItem {
   id: string;
   inspectionId: string;
@@ -190,8 +208,12 @@ export interface RectificationItem {
   location: string;
   reporter: string;
   reportTime: string;
-  status: 'pending' | 'processing' | 'resolved';
+  status: 'pending' | 'processing' | 'reviewing' | 'resolved' | 'rejected';
   handler?: string;
   handleNote?: string;
   handleTime?: string;
+  reviewer?: string;
+  reviewNote?: string;
+  reviewTime?: string;
+  timeline: RectificationTimeline[];
 }

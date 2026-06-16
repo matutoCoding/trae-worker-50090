@@ -18,6 +18,9 @@ import {
   CheckCircle2,
   Clock,
   User,
+  History,
+  RotateCcw,
+  AlertCircle,
 } from 'lucide-react';
 import SectionCard from '@/components/cards/SectionCard';
 import StatCard from '@/components/cards/StatCard';
@@ -32,6 +35,7 @@ export default function PipelinePage() {
   const deletePipeline = useAppStore((s) => s.deletePipeline);
   const approvePipeline = useAppStore((s) => s.approvePipeline);
   const rejectPipeline = useAppStore((s) => s.rejectPipeline);
+  const resubmitPipeline = useAppStore((s) => s.resubmitPipeline);
 
   const [activeTab, setActiveTab] = useState<string>('approved');
   const [searchTerm, setSearchTerm] = useState('');
@@ -142,6 +146,21 @@ export default function PipelinePage() {
         {labels[status] || status}
       </span>
     );
+  };
+
+  const getApprovalActionInfo = (action: string) => {
+    switch (action) {
+      case 'submit':
+        return { color: 'bg-yellow-500', label: '提交审批', badge: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/30' };
+      case 'approve':
+        return { color: 'bg-green-500', label: '审批通过', badge: 'bg-green-500/10 text-green-500 border-green-500/30' };
+      case 'reject':
+        return { color: 'bg-red-500', label: '审批驳回', badge: 'bg-red-500/10 text-red-500 border-red-500/30' };
+      case 'resubmit':
+        return { color: 'bg-blue-500', label: '重新提交', badge: 'bg-blue-500/10 text-blue-500 border-blue-500/30' };
+      default:
+        return { color: 'bg-navy-500', label: action, badge: 'bg-navy-500/10 text-slate-300 border-navy-500/30' };
+    }
   };
 
   const resetForm = () => {
@@ -406,13 +425,24 @@ export default function PipelinePage() {
                         </div>
                       )}
                       {pipeline.approvalStatus === 'rejected' && (
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 flex-wrap">
                           <button
                             onClick={() => handleOpenApproval(pipeline, 'approve')}
                             className="flex items-center gap-1 px-2 py-1 text-xs text-green-500 hover:bg-green-500/10 rounded transition-colors"
                           >
                             <CheckCircle2 size={12} />
                             重新审批
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm('确认重新提交该管线至审批流程？')) {
+                                resubmitPipeline(pipeline.id);
+                              }
+                            }}
+                            className="flex items-center gap-1 px-2 py-1 text-xs text-blue-500 hover:bg-blue-500/10 rounded transition-colors"
+                          >
+                            <RotateCcw size={12} />
+                            重新提交
                           </button>
                         </div>
                       )}
@@ -591,6 +621,17 @@ export default function PipelinePage() {
                       <FileCheck size={16} className={selectedPipeline.approvalStatus === 'approved' ? 'text-green-500' : selectedPipeline.approvalStatus === 'rejected' ? 'text-red-500' : 'text-yellow-500'} />
                       {renderApprovalBadge(selectedPipeline.approvalStatus)}
                     </div>
+                    {selectedPipeline.lastRejectNote && (
+                      <div className="mt-2 p-2.5 bg-red-500/10 border border-red-500/30 rounded-md">
+                        <p className="text-xs text-red-400 font-medium flex items-center gap-1 mb-1">
+                          <AlertCircle size={12} />
+                          上次驳回原因
+                        </p>
+                        <p className="text-xs text-slate-300">
+                          {selectedPipeline.lastRejectNote}
+                        </p>
+                      </div>
+                    )}
                     {selectedPipeline.approver && (
                       <p className="text-xs text-slate-400 mt-2">
                         审批人: {selectedPipeline.approver} · {selectedPipeline.approvalTime}
@@ -602,6 +643,47 @@ export default function PipelinePage() {
                       </p>
                     )}
                   </div>
+
+                  {selectedPipeline.approvalHistory && selectedPipeline.approvalHistory.length > 0 && (
+                    <div className="pt-4 mt-4 border-t border-navy-600/50">
+                      <label className="text-xs text-slate-400 block mb-3 flex items-center gap-1">
+                        <History size={12} />
+                        审批时间线
+                      </label>
+                      <div className="relative pl-5">
+                        {selectedPipeline.approvalHistory.map((item, idx) => {
+                          const info = getApprovalActionInfo(item.action);
+                          const total = selectedPipeline.approvalHistory?.length || 0;
+                          return (
+                            <div key={item.id} className="relative pb-4 last:pb-0">
+                              {idx < total - 1 && (
+                                <div className="absolute left-[-14px] top-4 w-0.5 h-full bg-navy-600" />
+                              )}
+                              <div className={`absolute left-[-18px] top-0 w-3 h-3 rounded-full border-2 border-navy-800 ${info.color}`} />
+                              <div className="bg-navy-900/50 border border-navy-600/50 rounded-md p-3">
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className={`inline-flex items-center px-2 py-0.5 text-xs rounded border ${info.badge}`}>
+                                    {info.label}
+                                  </span>
+                                  <span className="text-xs text-slate-500 font-mono">
+                                    {item.time}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-slate-400">
+                                  操作人: <span className="text-slate-300">{item.operator}</span>
+                                </p>
+                                {item.note && (
+                                  <p className="text-xs text-slate-300 mt-1 p-2 bg-navy-800/60 rounded">
+                                    {item.note}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -808,7 +890,7 @@ export default function PipelinePage() {
                 </div>
               )}
             </div>
-            <div className="px-6 py-4 border-t border-navy-600 flex justify-end gap-3">
+            <div className="px-6 py-4 border-t border-navy-600 flex justify-end gap-3 flex-wrap">
               <button
                 onClick={() => {
                   setShowModal(false);
@@ -816,8 +898,21 @@ export default function PipelinePage() {
                 }}
                 className="px-4 py-2 bg-navy-700/50 border border-navy-600 rounded-md text-sm text-slate-300 hover:bg-navy-700 transition-colors"
               >
-                取消
+                {selectedPipeline ? '关闭' : '取消'}
               </button>
+              {selectedPipeline && selectedPipeline.approvalStatus === 'rejected' && (
+                <button
+                  onClick={() => {
+                    if (confirm('确认重新提交该管线至审批流程？')) {
+                      resubmitPipeline(selectedPipeline.id);
+                    }
+                  }}
+                  className="flex items-center gap-1 px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition-colors"
+                >
+                  <RotateCcw size={14} />
+                  重新提交审批
+                </button>
+              )}
               {!selectedPipeline && (
                 <button
                   onClick={handleSubmit}

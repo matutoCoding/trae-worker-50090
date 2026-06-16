@@ -40,6 +40,8 @@ export default function Safety() {
   const [selectedSection, setSelectedSection] = useState(tunnelSections[0].id);
   const [activeTab, setActiveTab] = useState<'gas' | 'fire'>('gas');
   const [filterLevel, setFilterLevel] = useState<string>('all');
+  const [gasStatusFilter, setGasStatusFilter] = useState<string>('all');
+  const [fireStatusFilter, setFireStatusFilter] = useState<string>('all');
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [showProcessModal, setShowProcessModal] = useState<AlarmRecord | null>(null);
   const [showHistoryModal, setShowHistoryModal] = useState<AlarmRecord | null>(null);
@@ -79,10 +81,33 @@ export default function Safety() {
     return list.filter((a) => a.level === filterLevel);
   };
 
-  const gasAlarms = filterByLevel(alarms.filter((a) => a.type === 'gas'));
-  const fireWaterAlarms = filterByLevel(
+  const filterByStatus = (list: AlarmRecord[], statusFilter: string) => {
+    if (statusFilter === 'all') return list;
+    return list.filter((a) => a.status === statusFilter);
+  };
+
+  const gasAlarms = filterByStatus(filterByLevel(alarms.filter((a) => a.type === 'gas')), gasStatusFilter);
+  const fireWaterAlarms = filterByStatus(filterByLevel(
     alarms.filter((a) => a.type === 'fire' || a.type === 'waterlogging')
-  );
+  ), fireStatusFilter);
+
+  const statusFilters = [
+    { key: 'all', label: '全部' },
+    { key: 'unhandled', label: '未处理' },
+    { key: 'processing', label: '处理中' },
+    { key: 'resolved', label: '已解决' },
+  ];
+
+  const getStatusFilterCount = (list: AlarmRecord[], key: string) => {
+    if (key === 'all') return list.length;
+    return list.filter(a => a.status === key).length;
+  };
+
+  const getProcessRecordColor = (handleResult: string) => {
+    if (handleResult === 'resolved') return { bg: 'bg-green-500', text: '已解决', badge: 'bg-green-500/10 text-green-500 border-green-500/30' };
+    if (handleResult === 'processing') return { bg: 'bg-blue-500', text: '处理中', badge: 'bg-blue-500/10 text-blue-500 border-blue-500/30' };
+    return { bg: 'bg-navy-500', text: '告警', badge: 'bg-navy-500/10 text-slate-300 border-navy-500/30' };
+  };
 
   const getAlarmIcon = (type: string) => {
     switch (type) {
@@ -366,6 +391,24 @@ export default function Safety() {
                 </div>
               }
             >
+              <div className="flex items-center gap-1 mb-3 flex-wrap border-b border-navy-600/50 pb-2">
+                {statusFilters.map((sf) => (
+                  <button
+                    key={sf.key}
+                    onClick={() => setGasStatusFilter(sf.key)}
+                    className={`px-2.5 py-1 text-xs rounded-md transition-colors flex items-center gap-1 ${
+                      gasStatusFilter === sf.key
+                        ? 'bg-tech-blue/20 text-tech-blue border border-tech-blue/30'
+                        : 'text-slate-400 hover:text-white hover:bg-navy-700/50 border border-transparent'
+                    }`}
+                  >
+                    {sf.label}
+                    <span className={`text-[10px] ${gasStatusFilter === sf.key ? 'text-tech-blue' : 'text-slate-500'} font-mono`}>
+                      ({getStatusFilterCount(alarms.filter((a) => a.type === 'gas'), sf.key})
+                    </span>
+                  </button>
+                ))}
+              </div>
               <div className="space-y-2 max-h-96 overflow-y-auto">
                 {gasAlarms.length === 0 ? (
                   <div className="py-8 text-center text-slate-500 text-sm">
@@ -555,6 +598,24 @@ export default function Safety() {
                 </div>
               }
             >
+              <div className="flex items-center gap-1 mb-3 flex-wrap border-b border-navy-600/50 pb-2">
+                {statusFilters.map((sf) => (
+                  <button
+                    key={sf.key}
+                    onClick={() => setFireStatusFilter(sf.key)}
+                    className={`px-2.5 py-1 text-xs rounded-md transition-colors flex items-center gap-1 ${
+                      fireStatusFilter === sf.key
+                        ? 'bg-tech-blue/20 text-tech-blue border border-tech-blue/30'
+                        : 'text-slate-400 hover:text-white hover:bg-navy-700/50 border border-transparent'
+                    }`}
+                  >
+                    {sf.label}
+                    <span className={`text-[10px] ${fireStatusFilter === sf.key ? 'text-tech-blue' : 'text-slate-500'} font-mono`}>
+                      ({getStatusFilterCount(alarms.filter((a) => a.type === 'fire' || a.type === 'waterlogging'), sf.key)})
+                    </span>
+                  </button>
+                ))}
+              </div>
               <div className="space-y-2 max-h-[500px] overflow-y-auto">
                 {fireWaterAlarms.length === 0 ? (
                   <div className="py-8 text-center text-slate-500 text-sm">
@@ -788,44 +849,73 @@ export default function Safety() {
                 </div>
               </div>
 
-              {(!showHistoryModal.processRecords || showHistoryModal.processRecords.length === 0) ? (
-                <div className="py-8 text-center text-slate-500">
-                  暂无处置记录
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {[...showHistoryModal.processRecords].reverse().map((record, idx) => (
-                    <div key={record.id} className="relative pl-6">
-                      {idx < (showHistoryModal.processRecords?.length || 0) - 1 && (
-                        <div className="absolute left-3 top-6 bottom-0 w-px bg-navy-600"></div>
-                      )}
-                      <div className="absolute left-0 top-1.5 w-6 h-6 rounded-full bg-tech-blue/20 border-2 border-tech-blue/50 flex items-center justify-center">
-                        <div className="w-2 h-2 rounded-full bg-tech-blue"></div>
-                      </div>
-                      <div className="bg-navy-900/50 border border-navy-600/50 rounded-md p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className={`inline-flex items-center px-2 py-0.5 text-xs rounded border ${
-                            record.handleResult === 'resolved'
-                              ? 'bg-green-500/10 text-green-500 border-green-500/30'
-                              : 'bg-blue-500/10 text-blue-500 border-blue-500/30'
-                          }`}>
-                            {record.handleResult === 'resolved' ? '已解决' : '处理中'}
-                          </span>
-                          <span className="text-xs text-slate-500 font-mono">
-                            {formatDateTime(record.handleTime)}
-                          </span>
+              {(() => {
+                const records = showHistoryModal.processRecords || [];
+                const allSteps: Array<{
+                  id: string;
+                  type: 'alarm' | 'processing' | 'resolved';
+                  title: string;
+                  operator?: string;
+                  time: string;
+                  note?: string;
+                }> = [
+                  {
+                    id: 'alarm-root',
+                    type: 'alarm',
+                    title: '告警发生',
+                    time: showHistoryModal.timestamp,
+                    note: showHistoryModal.description,
+                  },
+                  ...[...records].reverse().map((r) => ({
+                    id: r.id,
+                    type: r.handleResult as 'processing' | 'resolved',
+                    title: r.handleResult === 'resolved' ? '处置完成（已解决）' : '处置记录（处理中）',
+                    operator: r.handler,
+                    time: r.handleTime,
+                    note: r.handleNote,
+                  })),
+                ];
+                const totalSteps = allSteps.length;
+                return (
+                  <div className="relative pl-5">
+                    {allSteps.map((step, idx) => {
+                      const dotColor =
+                        step.type === 'alarm' ? 'bg-red-500'
+                          : step.type === 'resolved' ? 'bg-green-500'
+                          : 'bg-blue-500';
+                      const { badge } = getProcessRecordColor(step.type);
+                      return (
+                        <div key={step.id} className="relative pb-5 last:pb-0">
+                          {idx < totalSteps - 1 && (
+                            <div className="absolute left-[-14px] top-4 w-0.5 h-full bg-navy-600" />
+                          )}
+                          <div className={`absolute left-[-18px] top-0 w-3 h-3 rounded-full border-2 border-navy-800 ${dotColor}`} />
+                          <div className="bg-navy-900/50 border border-navy-600/50 rounded-md p-3">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className={`inline-flex items-center px-2 py-0.5 text-xs rounded border ${badge}`}>
+                                {step.title}
+                              </span>
+                              <span className="text-xs text-slate-500 font-mono">
+                                {formatDateTime(step.time)}
+                              </span>
+                            </div>
+                            {step.operator && (
+                              <p className="text-xs text-slate-400">
+                                操作人: <span className="text-slate-300">{step.operator}</span>
+                              </p>
+                            )}
+                            {step.note && (
+                              <p className="text-xs text-slate-300 mt-1 p-2 bg-navy-800/60 rounded">
+                                {step.note}
+                              </p>
+                            )}
+                          </div>
                         </div>
-                        <div className="text-xs text-slate-400 mb-1">
-                          处理人: <span className="text-slate-300">{record.handler}</span>
-                        </div>
-                        <div className="text-sm text-white p-2 bg-navy-800/60 rounded mt-2">
-                          {record.handleNote}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
             <div className="px-6 py-4 border-t border-navy-600 flex justify-end">
               <button

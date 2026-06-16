@@ -5,8 +5,10 @@ import {
   Pipeline,
   InspectionRecord,
   RectificationItem,
+  RectificationTimeline,
   AbnormalDetail,
   AlarmProcessRecord,
+  ApprovalHistoryItem,
 } from '@/types';
 import { tunnelSections } from '@/data/tunnel';
 import { alarmRecords as initialAlarms } from '@/data/alarm';
@@ -37,7 +39,13 @@ interface AlarmProcessData {
 interface RectificationUpdateData {
   handler: string;
   handleNote: string;
-  status: 'processing' | 'resolved';
+  status: 'processing' | 'reviewing';
+}
+
+interface RectificationReviewData {
+  reviewer: string;
+  reviewNote: string;
+  passed: boolean;
 }
 
 interface AppState {
@@ -66,6 +74,7 @@ interface AppState {
   deletePipeline: (id: string) => void;
   approvePipeline: (id: string, approver: string, note?: string) => void;
   rejectPipeline: (id: string, approver: string, note: string) => void;
+  resubmitPipeline: (id: string, note?: string) => void;
 
   getTaskCheckpoints: (inspectionId: string) => typeof checkPoints;
   completeCheckpoint: (
@@ -83,6 +92,15 @@ interface AppState {
   updateRectification: (
     rectificationId: string,
     data: RectificationUpdateData
+  ) => void;
+  submitRectificationForReview: (
+    rectificationId: string,
+    handler: string,
+    handleNote: string
+  ) => void;
+  reviewRectification: (
+    rectificationId: string,
+    data: RectificationReviewData
   ) => void;
   resolveRectification: (
     rectificationId: string,
@@ -105,10 +123,25 @@ const generatePipelineCode = (type: string, count: number): string => {
 
 const generateId = () => String(Date.now()) + Math.random().toString(36).substr(2, 9);
 
+const formatDateTime = () =>
+  new Date().toISOString().replace('T', ' ').split('.')[0];
+
+const createTimelineItem = (
+  action: RectificationTimeline['action'],
+  operator: string,
+  note?: string
+): RectificationTimeline => ({
+  id: generateId(),
+  action,
+  operator,
+  time: formatDateTime(),
+  note,
+});
+
 const initialRectifications: RectificationItem[] = initialInspections
   .filter((r) => r.abnormalities && r.abnormalities.length > 0)
   .flatMap((r) =>
-    r.abnormalities!
+    (r.abnormalities || [])
       .filter((a) => a.status !== 'resolved')
       .map((a) => ({
         id: generateId(),
@@ -121,9 +154,44 @@ const initialRectifications: RectificationItem[] = initialInspections
         location: a.location,
         reporter: a.reporter,
         reportTime: a.reportTime,
-        status: a.status as 'pending' | 'processing' | 'resolved',
+        status: a.status as RectificationItem['status'],
+        timeline: [
+          createTimelineItem('report', a.reporter, a.description),
+        ],
       }))
   );
+
+const enhancedPipelines: Pipeline[] = initialPipelines.map((p) => ({
+  ...p,
+  approvalHistory: p.approvalStatus === 'approved'
+    ? [
+        {
+          id: generateId(),
+          action: 'submit' as const,
+          operator: p.owner,
+          time: p.inDate + ' 09:00:00',
+        },
+        {
+          id: generateId(),
+          action: 'approve' as const,
+          operator: p.approver || '系统管理员',
+          time: p.approvalTime || formatDateTime(),
+          note: p.approvalNote || '审核通过，准予入廊',
+        },
+      ]
+    : p.approvalStatus === 'pending'
+    ? [
+        {
+          id: generateId(),
+          action: 'submit' as const,
+          operator: p.owner,
+          time: p.inDate + ' 14:30:00',
+          note: '提交入廊申请，请审批',
+        },
+      ]
+    : [],
+  lastRejectNote: p.approvalStatus === 'rejected' ? p.approvalNote : undefined,
+}));
 
 export const useAppStore = create<AppState>((set, get) => ({
   sidebarCollapsed: false,
@@ -134,7 +202,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     processRecords: a.processRecords || [],
   })),
   tunnels: tunnelSections,
-  pipelines: initialPipelines,
+  pipelines: enhancedPipelines,
   inspections: initialInspections,
   rectifications: initialRectifications,
 
@@ -167,7 +235,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         id: generateId(),
         alarmId,
         handler: data.handler,
-        handleTime: new Date().toISOString(),
+        handleTime: formatDateTime(),
         handleNote: data.handleNote,
         handleResult: data.handleResult,
       };
@@ -200,6 +268,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     const pendingCount = state.pipelines.filter(
       (p) => p.type === data.type && p.approvalStatus === 'pending'
     ).length;
+
+    const historyItem: ApprovalHistoryItem = {
+      id: generateId(),
+      action: 'submit',
+      operator: data.owner,
+      time: formatDateTime(),
+      note: data.note || '提交入廊申请',
+    };
+
     const newPipeline: Pipeline = {
       id: generateId(),
       name: data.name,
@@ -218,6 +295,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       voltage: data.voltage,
       pressure: data.pressure,
       material: data.material,
+      approvalHistory: [historyItem],
     };
     set({ pipelines: [newPipeline, ...state.pipelines] });
   },
@@ -226,41 +304,82 @@ export const useAppStore = create<AppState>((set, get) => ({
       pipelines: state.pipelines.filter((p) => p.id !== id),
     })),
   approvePipeline: (id, approver, note) =>
-    set((state) => ({
-      pipelines: state.pipelines.map((p) =>
-        p.id === id
-          ? {
-              ...p,
-              status: 'normal',
-              approvalStatus: 'approved',
-              approver,
-              approvalTime: new Date()
-                .toISOString()
-                .replace('T', ' ')
-                .split('.')[0],
-              approvalNote: note,
-            }
-          : p
-      ),
-    })),
+    set((state) => {
+      const historyItem: ApprovalHistoryItem = {
+        id: generateId(),
+        action: 'approve',
+        operator: approver,
+        time: formatDateTime(),
+        note: note || '审核通过，准予入廊',
+      };
+      return {
+        pipelines: state.pipelines.map((p) =>
+          p.id === id
+            ? {
+                ...p,
+                status: 'normal',
+                approvalStatus: 'approved',
+                approver,
+                approvalTime: formatDateTime(),
+                approvalNote: note,
+                lastRejectNote: undefined,
+                approvalHistory: [...p.approvalHistory, historyItem],
+              }
+            : p
+        ),
+      };
+    }),
   rejectPipeline: (id, approver, note) =>
-    set((state) => ({
-      pipelines: state.pipelines.map((p) =>
-        p.id === id
-          ? {
-              ...p,
-              status: 'pending',
-              approvalStatus: 'rejected',
-              approver,
-              approvalTime: new Date()
-                .toISOString()
-                .replace('T', ' ')
-                .split('.')[0],
-              approvalNote: note,
-            }
-          : p
-      ),
-    })),
+    set((state) => {
+      const historyItem: ApprovalHistoryItem = {
+        id: generateId(),
+        action: 'reject',
+        operator: approver,
+        time: formatDateTime(),
+        note,
+      };
+      return {
+        pipelines: state.pipelines.map((p) =>
+          p.id === id
+            ? {
+                ...p,
+                status: 'pending',
+                approvalStatus: 'rejected',
+                approver,
+                approvalTime: formatDateTime(),
+                approvalNote: note,
+                lastRejectNote: note,
+                approvalHistory: [...p.approvalHistory, historyItem],
+              }
+            : p
+        ),
+      };
+    }),
+  resubmitPipeline: (id, note) =>
+    set((state) => {
+      const historyItem: ApprovalHistoryItem = {
+        id: generateId(),
+        action: 'resubmit',
+        operator: '当前提交人',
+        time: formatDateTime(),
+        note: note || '修改后重新提交审批',
+      };
+      return {
+        pipelines: state.pipelines.map((p) =>
+          p.id === id
+            ? {
+                ...p,
+                status: 'pending',
+                approvalStatus: 'pending',
+                approver: undefined,
+                approvalTime: undefined,
+                approvalNote: undefined,
+                approvalHistory: [...p.approvalHistory, historyItem],
+              }
+            : p
+        ),
+      };
+    }),
 
   getTaskCheckpoints: (inspectionId) => {
     const state = get();
@@ -301,14 +420,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     abnormalNote,
     reporter
   ) =>
-    set((state) => ({
-      inspections: state.inspections.map((ins) => {
+    set((state) => {
+      let newRectifications = [...state.rectifications];
+
+      const newInspections = state.inspections.map((ins) => {
         if (ins.id !== inspectionId) return ins;
         const newCompleted = (ins.completedCheckpoints || 0) + 1;
         const isCompleted = newCompleted >= (ins.checkpoints || 1);
 
         let newAbnormalities = ins.abnormalities || [];
-        let newRectifications = state.rectifications;
 
         if (hasAbnormal && abnormalNote) {
           const abnormal: AbnormalDetail = {
@@ -319,10 +439,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             description: abnormalNote,
             location: checkpointLocation,
             reporter: reporter || ins.inspector || '当前巡检员',
-            reportTime: new Date()
-              .toISOString()
-              .replace('T', ' ')
-              .split('.')[0],
+            reportTime: formatDateTime(),
             status: 'pending',
           };
           newAbnormalities = [...newAbnormalities, abnormal];
@@ -339,8 +456,11 @@ export const useAppStore = create<AppState>((set, get) => ({
             reporter: abnormal.reporter,
             reportTime: abnormal.reportTime,
             status: 'pending',
+            timeline: [
+              createTimelineItem('report', abnormal.reporter, abnormal.description),
+            ],
           };
-          newRectifications = [...newRectifications, rectItem];
+          newRectifications = [rectItem, ...newRectifications];
         }
 
         let newStatus: InspectionRecord['status'] = ins.status;
@@ -361,10 +481,15 @@ export const useAppStore = create<AppState>((set, get) => ({
           completedCheckpoints: newCompleted,
           abnormalities: newAbnormalities,
           status: newStatus,
+          endTime: isCompleted ? formatDateTime() : ins.endTime,
         };
-      }),
-      rectifications: state.rectifications,
-    })),
+      });
+
+      return {
+        inspections: newInspections,
+        rectifications: newRectifications,
+      };
+    }),
   finishInspection: (inspectionId) =>
     set((state) => ({
       inspections: state.inspections.map((ins) => {
@@ -375,10 +500,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             (ins.abnormalities && ins.abnormalities.length > 0)
               ? 'abnormal'
               : 'completed',
-          endTime: new Date()
-            .toISOString()
-            .replace('T', ' ')
-            .split('.')[0],
+          endTime: formatDateTime(),
           completedCheckpoints: ins.checkpoints,
         };
       }),
@@ -390,6 +512,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         (r) => r.id === rectificationId
       );
       if (!rect) return state;
+
+      const timeline = [
+        ...rect.timeline,
+        createTimelineItem(
+          data.status === 'reviewing' ? 'submit_review' : 'start',
+          data.handler,
+          data.handleNote
+        ),
+      ];
+
       return {
         rectifications: state.rectifications.map((r) =>
           r.id === rectificationId
@@ -398,10 +530,8 @@ export const useAppStore = create<AppState>((set, get) => ({
                 status: data.status,
                 handler: data.handler,
                 handleNote: data.handleNote,
-                handleTime: new Date()
-                  .toISOString()
-                  .replace('T', ' ')
-                  .split('.')[0],
+                handleTime: formatDateTime(),
+                timeline,
               }
             : r
         ),
@@ -409,7 +539,90 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...ins,
           abnormalities: (ins.abnormalities || []).map((a) =>
             a.id === rect.abnormalId
-              ? { ...a, status: data.status }
+              ? {
+                  ...a,
+                  status: data.status === 'reviewing' ? 'processing' : data.status,
+                }
+              : a
+          ),
+        })),
+      };
+    }),
+  submitRectificationForReview: (rectificationId, handler, handleNote) =>
+    set((state) => {
+      const rect = state.rectifications.find(
+        (r) => r.id === rectificationId
+      );
+      if (!rect) return state;
+
+      const timeline = [
+        ...rect.timeline,
+        createTimelineItem('submit_review', handler, handleNote),
+      ];
+
+      return {
+        rectifications: state.rectifications.map((r) =>
+          r.id === rectificationId
+            ? {
+                ...r,
+                status: 'reviewing',
+                handler,
+                handleNote,
+                handleTime: formatDateTime(),
+                timeline,
+              }
+            : r
+        ),
+        inspections: state.inspections.map((ins) => ({
+          ...ins,
+          abnormalities: (ins.abnormalities || []).map((a) =>
+            a.id === rect.abnormalId
+              ? { ...a, status: 'processing' }
+              : a
+          ),
+        })),
+      };
+    }),
+  reviewRectification: (rectificationId, data) =>
+    set((state) => {
+      const rect = state.rectifications.find(
+        (r) => r.id === rectificationId
+      );
+      if (!rect) return state;
+
+      const action: RectificationTimeline['action'] = data.passed
+        ? 'review_pass'
+        : 'review_reject';
+      const newStatus: RectificationItem['status'] = data.passed
+        ? 'resolved'
+        : 'rejected';
+      const abnormalStatus: AbnormalDetail['status'] = data.passed
+        ? 'resolved'
+        : 'processing';
+
+      const timeline = [
+        ...rect.timeline,
+        createTimelineItem(action, data.reviewer, data.reviewNote),
+      ];
+
+      return {
+        rectifications: state.rectifications.map((r) =>
+          r.id === rectificationId
+            ? {
+                ...r,
+                status: newStatus,
+                reviewer: data.reviewer,
+                reviewNote: data.reviewNote,
+                reviewTime: formatDateTime(),
+                timeline,
+              }
+            : r
+        ),
+        inspections: state.inspections.map((ins) => ({
+          ...ins,
+          abnormalities: (ins.abnormalities || []).map((a) =>
+            a.id === rect.abnormalId
+              ? { ...a, status: abnormalStatus }
               : a
           ),
         })),
@@ -421,6 +634,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         (r) => r.id === rectificationId
       );
       if (!rect) return state;
+
+      const timeline = [
+        ...rect.timeline,
+        createTimelineItem('review_pass', handler, handleNote),
+      ];
+
       return {
         rectifications: state.rectifications.map((r) =>
           r.id === rectificationId
@@ -429,10 +648,11 @@ export const useAppStore = create<AppState>((set, get) => ({
                 status: 'resolved',
                 handler,
                 handleNote,
-                handleTime: new Date()
-                  .toISOString()
-                  .replace('T', ' ')
-                  .split('.')[0],
+                handleTime: formatDateTime(),
+                reviewer: handler,
+                reviewNote: handleNote,
+                reviewTime: formatDateTime(),
+                timeline,
               }
             : r
         ),
